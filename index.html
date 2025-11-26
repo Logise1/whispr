@@ -4,31 +4,46 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
-    <!-- CSP -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; media-src 'self' data: blob:;">
     
     <title>Whispr</title>
 
+    <!-- CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet (Mapa) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css"/>
+
+    <!-- JS Libraries -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: { 
-                        brand: { 500: '#111111', 600: '#000000' },
-                        accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
-                    },
-                    animation: { 'fade-in': 'fadeIn 0.3s ease-out' },
-                    keyframes: { fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } } }
+                    colors: { brand: { 500: '#111111', 600: '#000000' } },
+                    boxShadow: { 'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)' }
                 }
             }
         }
     </script>
+
+    <style>
+        /* Ajustes Mapa */
+        #map-view { height: calc(100vh - 130px); z-index: 1; }
+        .leaflet-popup-content-wrapper { border-radius: 16px; padding: 0; overflow: hidden; }
+        .leaflet-popup-content { margin: 0; width: 280px !important; }
+        /* Ajustes Audio */
+        .recording-pulse { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
 
     <script>
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
@@ -42,70 +57,69 @@
 
         let state = {
             userLocation: null,
-            lastFetchLocation: null,
             range: 500,
             authToken: null,
             currentUser: null,
             pseudonym: null,
-            blockedUsers: JSON.parse(localStorage.getItem('whispr_blocked') || '[]'),
             loadedPosts: [],
             activeFilter: 'all',
-            currentPostId: null,
-            geoWatchId: null
+            currentTab: 'feed', // 'feed' o 'map'
+            mapInstance: null,
+            markerCluster: null,
+            mediaRecorder: null,
+            audioChunks: [],
+            audioBlobBase64: null,
+            isRecording: false
         };
 
         document.addEventListener('DOMContentLoaded', () => {
             checkSession();
             initListeners();
-            requestNotificationPermission();
         });
 
         function initListeners() {
             on('btn-logout', 'click', logout);
             on('btn-profile', 'click', openProfile);
-            on('btn-refresh', 'click', () => { state.lastFetchLocation = null; fetchPosts(); });
+            on('btn-refresh', 'click', fetchPosts);
             
+            // Tabs Navigation
+            on('tab-feed', 'click', () => switchTab('feed'));
+            on('tab-map', 'click', () => switchTab('map'));
+
+            // Slider
             const slider = document.getElementById('rangeSlider');
             if(slider) {
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    renderPostsSmart(state.loadedPosts);
+                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
                 });
                 slider.addEventListener('change', fetchPosts);
             }
 
+            // Acciones
             on('fab-add', 'click', () => toggleModal('modal-new-post', true));
             on('btn-close-post', 'click', () => toggleModal('modal-new-post', false));
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Comentarios
-            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
-            on('btn-send-comment', 'click', publishComment);
-            
+            // Audio Recorder
+            on('btn-record', 'mousedown', startRecording);
+            on('btn-record', 'touchstart', startRecording);
+            on('btn-record', 'mouseup', stopRecording);
+            on('btn-record', 'touchend', stopRecording);
+            on('btn-delete-audio', 'click', resetAudio);
+
+            // Filtros
             document.querySelectorAll('.filter-tab').forEach(tab => {
                 tab.addEventListener('click', (e) => {
-                    document.querySelectorAll('.filter-tab').forEach(c => {
-                        c.classList.remove('text-black', 'border-black');
-                        c.classList.add('text-gray-400', 'border-transparent');
-                    });
-                    e.target.classList.remove('text-gray-400', 'border-transparent');
-                    e.target.classList.add('text-black', 'border-black');
+                    document.querySelectorAll('.filter-tab').forEach(c => c.classList.replace('text-black','text-gray-400'));
+                    document.querySelectorAll('.filter-tab').forEach(c => c.classList.replace('border-black','border-transparent'));
+                    e.target.classList.replace('text-gray-400','text-black');
+                    e.target.classList.replace('border-transparent','border-black');
                     state.activeFilter = e.target.dataset.filter;
-                    renderPostsSmart(state.loadedPosts);
-                });
-            });
-
-            document.querySelectorAll('.cat-radio').forEach(opt => {
-                opt.addEventListener('click', (e) => {
-                    document.querySelectorAll('.cat-radio').forEach(c => {
-                        c.classList.remove('bg-black', 'text-white');
-                        c.classList.add('bg-gray-100', 'text-gray-600');
-                    });
-                    e.currentTarget.classList.remove('bg-gray-100', 'text-gray-600');
-                    e.currentTarget.classList.add('bg-black', 'text-white');
-                    document.getElementById('post-category').value = e.currentTarget.dataset.cat;
+                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
+                    else updateMapMarkers(state.loadedPosts);
                 });
             });
         }
@@ -115,6 +129,7 @@
             if(el) el.addEventListener(evt, handler);
         }
 
+        // --- AUTH ---
         function checkSession() {
             try {
                 state.authToken = localStorage.getItem('whispr_token');
@@ -130,26 +145,16 @@
         }
 
         function initApp() {
-            updateProfileUI();
+            document.getElementById('header-avatar-text').innerText = state.pseudonym?.charAt(0).toUpperCase() || '?';
             toggleModal('modal-auth', false);
             startLiveTracking();
-        }
-
-        function updateProfileUI() {
-            const headerAvatar = document.getElementById('header-avatar-text');
-            if(headerAvatar && state.pseudonym) headerAvatar.innerText = state.pseudonym.charAt(0).toUpperCase();
-            const profileInput = document.getElementById('prof-pseudo');
-            if(profileInput && state.pseudonym) profileInput.value = state.pseudonym;
         }
 
         async function handleAuthSubmit() {
             const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
             const passIn = document.getElementById('auth-password').value;
-            const btn = document.getElementById('auth-submit');
-            
             if(!userIn || !passIn) return alert("Faltan datos");
-            btn.disabled = true;
-
+            
             try {
                 const mode = document.getElementById('auth-mode').value;
                 const res = await fetch(`${WORKER_URL}/api/auth/${mode}`, {
@@ -162,15 +167,11 @@
 
                 state.authToken = data.token;
                 state.currentUser = data.username;
-                state.pseudonym = data.username; 
+                state.pseudonym = data.username;
                 localStorage.setItem('whispr_token', data.token);
                 localStorage.setItem('whispr_username', data.username);
                 initApp();
-            } catch(e) {
-                alert(e.message);
-            } finally {
-                btn.disabled = false;
-            }
+            } catch(e) { alert(e.message); }
         }
 
         function logout() {
@@ -178,36 +179,200 @@
             location.reload();
         }
 
+        // --- GEO & MAPS ---
         function startLiveTracking() {
             if(!navigator.geolocation) return;
             document.getElementById('gps-loading').classList.remove('hidden');
-            state.geoWatchId = navigator.geolocation.watchPosition(
+            navigator.geolocation.watchPosition(
                 (pos) => {
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     document.getElementById('gps-loading').classList.add('hidden');
-                    if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 8) {
-                        fetchPosts();
-                    } else {
-                        renderPostsSmart(state.loadedPosts);
-                    }
+                    if(state.loadedPosts.length === 0) fetchPosts();
+                    else if (state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
                 },
                 (err) => console.warn(err),
-                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+                { enableHighAccuracy: true }
             );
         }
 
+        function switchTab(tab) {
+            state.currentTab = tab;
+            const feedBtn = document.getElementById('tab-feed');
+            const mapBtn = document.getElementById('tab-map');
+            const feedContainer = document.getElementById('feed-container');
+            const mapContainer = document.getElementById('map-view');
+
+            if (tab === 'feed') {
+                feedBtn.classList.add('text-black'); feedBtn.classList.remove('text-gray-400');
+                mapBtn.classList.remove('text-black'); mapBtn.classList.add('text-gray-400');
+                feedContainer.classList.remove('hidden');
+                mapContainer.classList.add('hidden');
+            } else {
+                mapBtn.classList.add('text-black'); mapBtn.classList.remove('text-gray-400');
+                feedBtn.classList.remove('text-black'); feedBtn.classList.add('text-gray-400');
+                feedContainer.classList.add('hidden');
+                mapContainer.classList.remove('hidden');
+                initMap();
+            }
+        }
+
+        function initMap() {
+            if (state.mapInstance) {
+                state.mapInstance.invalidateSize(); // Recalcular tamaño
+                return;
+            }
+            if (!state.userLocation) return;
+
+            state.mapInstance = L.map('map-view').setView([state.userLocation.lat, state.userLocation.lng], 15);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19
+            }).addTo(state.mapInstance);
+
+            // MarkerCluster Group
+            state.markerCluster = L.markerClusterGroup({
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true,
+                iconCreateFunction: function(cluster) {
+                    return L.divIcon({ 
+                        html: `<div class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg border-2 border-white">${cluster.getChildCount()}</div>`, 
+                        className: 'custom-cluster-icon', 
+                        iconSize: L.point(40, 40) 
+                    });
+                }
+            });
+            state.mapInstance.addLayer(state.markerCluster);
+            updateMapMarkers(state.loadedPosts);
+        }
+
+        function updateMapMarkers(posts) {
+            if (!state.markerCluster) return;
+            state.markerCluster.clearLayers();
+
+            const filtered = posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
+
+            filtered.forEach(p => {
+                const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
+                const marker = L.marker([p.lat, p.lng], {
+                    icon: L.divIcon({
+                        html: `<div class="text-2xl drop-shadow-md" style="color:${cat.color.split(' ')[1]}"><i class="fas fa-map-marker-alt text-black"></i></div>`,
+                        className: 'bg-transparent',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 30]
+                    })
+                });
+
+                // Popup contenido
+                let audioHtml = '';
+                if(p.audio) {
+                    audioHtml = `<audio controls src="${p.audio}" class="w-full mt-2 h-8"></audio>`;
+                }
+
+                const popupContent = `
+                    <div class="p-4 bg-white font-sans">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center font-bold text-xs text-gray-500">${p.pseudonym[0].toUpperCase()}</div>
+                            <span class="font-bold text-sm">${escapeHtml(p.pseudonym)}</span>
+                            <span class="text-xs text-gray-400">${getTimeAgo(p.timestamp)}</span>
+                        </div>
+                        <p class="text-sm text-gray-800 mb-2">${escapeHtml(p.text)}</p>
+                        ${audioHtml}
+                        <div class="flex justify-between items-center mt-2 border-t pt-2">
+                            <span class="text-xs font-bold px-2 py-1 bg-gray-100 rounded uppercase">${cat.label}</span>
+                            <div class="text-xs text-gray-500"><i class="fas fa-fire text-orange-500"></i> ${p.reactions?.fire?.length || 0}</div>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                state.markerCluster.addLayer(marker);
+            });
+        }
+
+        // --- AUDIO RECORDER ---
+        async function startRecording(e) {
+            e.preventDefault(); // Evitar selección de texto
+            if (!navigator.mediaDevices) return alert("Audio no soportado");
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                state.mediaRecorder = new MediaRecorder(stream);
+                state.audioChunks = [];
+                
+                state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
+                state.mediaRecorder.onstop = processAudio;
+                
+                state.mediaRecorder.start();
+                state.isRecording = true;
+                
+                // UI Update
+                const btn = document.getElementById('btn-record');
+                btn.classList.add('bg-red-500', 'recording-pulse', 'text-white');
+                btn.classList.remove('bg-gray-100', 'text-gray-500');
+                document.getElementById('audio-status').innerText = "Grabando... (Suelta para terminar)";
+                document.getElementById('audio-status').classList.remove('hidden');
+
+                // Auto-stop a los 10 seg
+                setTimeout(() => { if(state.isRecording) stopRecording(); }, 10000);
+
+            } catch(err) {
+                alert("Error micrófono: " + err.message);
+            }
+        }
+
+        function stopRecording() {
+            if (!state.isRecording || !state.mediaRecorder) return;
+            state.mediaRecorder.stop();
+            state.isRecording = false;
+            
+            const btn = document.getElementById('btn-record');
+            btn.classList.remove('bg-red-500', 'recording-pulse', 'text-white');
+            btn.classList.add('bg-gray-100', 'text-gray-500');
+        }
+
+        function processAudio() {
+            const blob = new Blob(state.audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = () => {
+                state.audioBlobBase64 = reader.result;
+                // Mostrar preview
+                const container = document.getElementById('audio-preview-container');
+                container.classList.remove('hidden');
+                container.innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8"></audio>`;
+                document.getElementById('audio-status').innerText = "Audio grabado";
+                document.getElementById('btn-delete-audio').classList.remove('hidden');
+                document.getElementById('btn-record').classList.add('hidden');
+            };
+        }
+
+        function resetAudio() {
+            state.audioBlobBase64 = null;
+            document.getElementById('audio-preview-container').classList.add('hidden');
+            document.getElementById('audio-status').classList.add('hidden');
+            document.getElementById('btn-delete-audio').classList.add('hidden');
+            document.getElementById('btn-record').classList.remove('hidden');
+        }
+
+        // --- POSTS ---
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
             document.getElementById('btn-refresh').classList.add('animate-spin');
             try {
-                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.range}`, {
+                // Fetch con un rango mayor para el mapa (ej. 50km) o el rango del slider para feed
+                // Para simplificar, usamos el rango del slider pero multiplicado x2 para el mapa
+                const range = state.currentTab === 'map' ? Math.max(state.range, 5000) : state.range;
+                
+                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${range}`, {
                     headers: { 'Authorization': `Bearer ${state.authToken}` }
                 });
                 if(res.status === 401) return logout();
-                const posts = await res.json();
-                state.loadedPosts = posts;
-                state.lastFetchLocation = {...state.userLocation};
-                renderPostsSmart(posts);
+                
+                state.loadedPosts = await res.json();
+                
+                if (state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
+                else updateMapMarkers(state.loadedPosts);
+
             } catch(e) { console.error(e); } finally {
                 document.getElementById('btn-refresh').classList.remove('animate-spin');
             }
@@ -221,33 +386,29 @@
                 p.distance = getDist(state.userLocation, p);
                 if(p.distance > state.range) return false;
                 if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
-                if(state.blockedUsers.includes(p.author)) return false;
                 return true;
             });
 
             filtered.sort((a,b) => a.distance - b.distance);
             
+            // Limpiar si vacío
             if(filtered.length === 0) {
-                if(!document.getElementById('empty-msg')) {
-                    feed.innerHTML = `<div id="empty-msg" class="flex flex-col items-center justify-center h-64 text-gray-300"><i class="fas fa-wind text-3xl mb-2"></i><p class="text-sm">Silencio en este radio.</p></div>`;
-                }
+                if(!document.getElementById('empty-msg')) 
+                    feed.innerHTML = `<div id="empty-msg" class="flex flex-col items-center justify-center h-64 text-gray-300"><i class="fas fa-wind text-3xl mb-2"></i><p class="text-sm">Silencio.</p></div>`;
                 return;
             }
             const empty = document.getElementById('empty-msg');
             if(empty) empty.remove();
 
+            // Diffing
             const currentIds = new Set(filtered.map(p => p.id));
             Array.from(feed.children).forEach(c => {
                 if(c.dataset.id && !currentIds.has(c.dataset.id)) c.remove();
             });
 
             filtered.forEach(p => {
-                let card = document.getElementById(`post-${p.id}`);
-                if(card) {
-                    updateCard(card, p);
-                } else {
-                    card = createCard(p);
-                    feed.appendChild(card);
+                if (!document.getElementById(`post-${p.id}`)) {
+                    feed.appendChild(createCard(p));
                 }
             });
         }
@@ -256,138 +417,29 @@
             const div = document.createElement('div');
             div.id = `post-${p.id}`;
             div.dataset.id = p.id;
-            div.className = "bg-white p-5 mb-3 border-b border-gray-100 last:border-0 relative group animate-fade-in";
+            div.className = "bg-white p-5 mb-3 border-b border-gray-100 last:border-0";
             
-            const cat = CATEGORIES[p.category] || CATEGORIES['gossip'];
-            // GAMIFICACIÓN: Si tiene > 5 fuegos, mostramos medalla
-            const popular = (p.reactions?.fire?.length || 0) > 5;
+            const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
+            let audioHtml = p.audio ? `<div class="mt-2 mb-2"><audio controls src="${p.audio}" class="w-full h-8 rounded-lg bg-gray-50"></audio></div>` : '';
 
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-2">
                     <div class="flex items-center gap-2">
-                        <span class="font-bold text-sm text-gray-900">${escapeHtml(p.pseudonym || 'Anónimo')}</span>
-                        ${popular ? '<i class="fas fa-medal text-yellow-500 text-sm" title="Popular en la zona"></i>' : ''}
-                        <span class="text-gray-300 text-xs">•</span>
-                        <span class="text-xs text-gray-400">${getTimeAgo(p.timestamp)}</span>
+                        <span class="font-bold text-sm">${escapeHtml(p.pseudonym)}</span>
+                        <span class="text-xs text-gray-400">• ${getTimeAgo(p.timestamp)}</span>
                     </div>
-                    <span class="text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded dist-label">${formatDistance(p.distance)}</span>
+                    <span class="text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded">${formatDistance(p.distance)}</span>
                 </div>
-
                 <div class="mb-3">
                     <span class="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 ${cat.color}">${cat.label}</span>
                     <p class="text-gray-800 text-[15px] leading-snug break-words whitespace-pre-line">${escapeHtml(p.text)}</p>
+                    ${audioHtml}
                 </div>
-
-                <div class="flex items-center justify-between">
-                    <div class="flex gap-4">
-                        ${renderReactionBtn(p, 'like', 'fa-thumbs-up')}
-                        ${renderReactionBtn(p, 'fire', 'fa-fire')}
-                        ${renderReactionBtn(p, 'dislike', 'fa-thumbs-down')}
-                        <button onclick="openComments('${p.id}')" class="flex items-center gap-1.5 group text-gray-300 hover:text-black">
-                            <i class="far fa-comment-alt"></i>
-                            <span class="text-xs font-bold">Comentar</span>
-                        </button>
-                    </div>
-                    <button onclick="showOptions('${p.id}', '${p.author}')" class="text-gray-300 hover:text-black"><i class="fas fa-ellipsis-h"></i></button>
+                <div class="flex gap-4 text-gray-400 text-sm">
+                    <span><i class="fas fa-fire text-orange-500"></i> ${p.reactions?.fire?.length || 0}</span>
                 </div>
             `;
             return div;
-        }
-
-        function renderReactionBtn(p, type, icon) {
-            const count = (p.reactions && p.reactions[type] ? p.reactions[type].length : 0);
-            const active = (p.reactions && p.reactions[type] && p.reactions[type].includes(state.currentUser));
-            const color = active ? (type === 'fire' ? 'text-orange-500' : 'text-black') : 'text-gray-300';
-            return `
-                <button onclick="react('${p.id}', '${type}')" class="flex items-center gap-1.5 group">
-                    <i class="fas ${icon} ${color} group-hover:scale-110 transition-transform"></i>
-                    <span class="text-xs font-bold ${active ? 'text-black' : 'text-gray-400'} count-${type}">${count > 0 ? count : ''}</span>
-                </button>
-            `;
-        }
-
-        function updateCard(card, p) {
-            card.querySelector('.dist-label').innerText = formatDistance(p.distance);
-            ['like', 'dislike', 'fire'].forEach(type => {
-                const count = p.reactions?.[type]?.length || 0;
-                const span = card.querySelector(`.count-${type}`);
-                if(span) span.innerText = count > 0 ? count : '';
-            });
-        }
-
-        // --- COMENTARIOS ---
-        async function openComments(postId) {
-            state.currentPostId = postId;
-            toggleModal('modal-comments', true);
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
-            
-            try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
-                if(res.ok) {
-                    const comments = await res.json();
-                    renderComments(comments);
-                }
-            } catch(e) {
-                list.innerHTML = '<p class="text-center text-xs text-red-400">Error cargando comentarios</p>';
-            }
-        }
-
-        function renderComments(comments) {
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '';
-            if(comments.length === 0) {
-                list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sé el primero en opinar.</p>';
-                return;
-            }
-            comments.forEach(c => {
-                const el = document.createElement('div');
-                el.className = "mb-3 border-b border-gray-50 pb-2";
-                el.innerHTML = `
-                    <div class="flex justify-between text-[10px] text-gray-400 mb-1">
-                        <span class="font-bold text-gray-900">${escapeHtml(c.author)}</span>
-                        <span>${getTimeAgo(c.timestamp)}</span>
-                    </div>
-                    <p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>
-                `;
-                list.appendChild(el);
-            });
-        }
-
-        async function publishComment() {
-            const input = document.getElementById('comment-input');
-            const text = input.value.trim();
-            if(!text || !state.currentPostId) return;
-            
-            const btn = document.getElementById('btn-send-comment');
-            btn.disabled = true;
-            
-            try {
-                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                });
-                input.value = '';
-                openComments(state.currentPostId);
-            } catch(e) {
-                alert('Error enviando');
-            } finally {
-                btn.disabled = false;
-            }
-        }
-
-        async function react(postId, type) {
-            try {
-                await fetch(`${WORKER_URL}/api/posts/react`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ postId, type })
-                });
-                fetchPosts();
-            } catch(e) {}
         }
 
         async function publishPost() {
@@ -395,7 +447,7 @@
             const cat = document.getElementById('post-category').value;
             const duration = document.getElementById('post-duration').value; 
 
-            if(!text || text.length > 280) return alert("Escribe algo (max 280).");
+            if((!text && !state.audioBlobBase64) || (text.length > 280)) return alert("Escribe o graba algo.");
 
             const btn = document.getElementById('btn-publish');
             btn.disabled = true;
@@ -406,6 +458,7 @@
                     headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         text, 
+                        audio: state.audioBlobBase64,
                         category: cat,
                         lat: state.userLocation.lat, 
                         lng: state.userLocation.lng,
@@ -415,93 +468,18 @@
                 });
                 toggleModal('modal-new-post', false);
                 document.getElementById('post-input').value = '';
-                state.lastFetchLocation = null;
+                resetAudio();
                 fetchPosts();
-            } catch(e) {
-                alert(e.message);
-            } finally {
-                btn.disabled = false;
-            }
+            } catch(e) { alert(e.message); } 
+            finally { btn.disabled = false; }
         }
 
-        function openProfile() {
-            const myPosts = state.loadedPosts.filter(p => p.author === state.currentUser).length;
-            let totalReactions = 0;
-            state.loadedPosts.filter(p => p.author === state.currentUser).forEach(p => {
-                if(p.reactions) totalReactions += (p.reactions.like?.length||0) + (p.reactions.dislike?.length||0) + (p.reactions.fire?.length||0);
-            });
-
-            document.getElementById('prof-post-count').innerText = myPosts;
-            document.getElementById('prof-react-count').innerText = totalReactions;
-            document.getElementById('prof-pseudo').value = state.pseudonym;
-            
-            toggleModal('modal-profile', true);
-        }
-
-        function saveProfile() {
-            const newPseudo = document.getElementById('prof-pseudo').value.trim();
-            if(newPseudo) {
-                state.pseudonym = newPseudo;
-                localStorage.setItem('whispr_pseudonym', newPseudo);
-                updateProfileUI();
-            }
-            toggleModal('modal-profile', false);
-        }
-
-        // --- GESTIÓN DE OPCIONES (Reportar / Borrar) ---
-        function showOptions(postId, authorId) {
-            // LÓGICA CORREGIDA: No permitir auto-reporte
-            if (authorId === state.currentUser) {
-                // Si es mi post, opción de BORRAR
-                if(confirm("¿Deseas borrar tu mensaje?")) {
-                    deletePost(postId);
-                }
-            } else {
-                // Si es de otro, opción de REPORTAR o BLOQUEAR
-                if(confirm("Opciones para este mensaje:\n\nAceptar: REPORTAR contenido ofensivo\nCancelar: BLOQUEAR a este usuario")) {
-                    fetch(`${WORKER_URL}/api/report`, { 
-                        method: 'POST', 
-                        headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
-                        body: JSON.stringify({ postId, reason: 'offensive' })
-                    });
-                    alert("Reporte enviado. Los mensajes con +3 reportes se eliminan automáticamente.");
-                } else {
-                    if(confirm(`¿Bloquear usuario? No verás más sus mensajes.`)) {
-                        state.blockedUsers.push(authorId);
-                        localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
-                        renderPostsSmart(state.loadedPosts); 
-                    }
-                }
-            }
-        }
-
-        async function deletePost(postId) {
-            try {
-                await fetch(`${WORKER_URL}/api/posts/${postId}`, {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
-                state.lastFetchLocation = null;
-                fetchPosts();
-            } catch(e) { alert("No se pudo borrar"); }
-        }
-
+        // --- UTILS ---
         function toggleModal(id, show) {
             const el = document.getElementById(id);
-            if(show) el.classList.remove('hidden');
-            else el.classList.add('hidden');
+            if(show) el.classList.remove('hidden'); else el.classList.add('hidden');
         }
-
-        function toggleAuthMode(mode) {
-            const isLogin = mode === 'login';
-            document.getElementById('auth-mode').value = mode;
-            document.getElementById('auth-title').innerText = isLogin ? 'Whispr' : 'Crear cuenta';
-            document.getElementById('auth-submit').innerText = isLogin ? 'Entrar' : 'Registrarse';
-            document.getElementById('auth-toggle-text').innerHTML = isLogin 
-                ? '<span class="text-gray-400">¿No tienes cuenta?</span> <button class="font-medium text-black ml-1" onclick="toggleAuthMode(\'register\')">Regístrate</button>'
-                : '<span class="text-gray-400">¿Ya tienes cuenta?</span> <button class="font-medium text-black ml-1" onclick="toggleAuthMode(\'login\')">Entra</button>';
-        }
-
+        function openProfile() { toggleModal('modal-profile', true); }
         function getDist(p1, p2) {
             if(!p1 || !p2) return 9999;
             const R = 6371e3; 
@@ -509,29 +487,20 @@
             const a = 0.5 - Math.cos((p2.lat-p1.lat)*p)/2 + Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2;
             return 2 * R * Math.asin(Math.sqrt(a));
         }
-
         function formatDistance(m) { return m >= 1000 ? (m/1000).toFixed(1)+'km' : Math.round(m)+'m'; }
         function escapeHtml(t) { return t ? t.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])) : ''; }
         function getTimeAgo(d) {
             const s = Math.floor((new Date() - new Date(d))/1000);
-            if(s<60) return '1m';
-            if(s<3600) return Math.floor(s/60)+'m';
-            if(s<86400) return Math.floor(s/3600)+'h';
-            return Math.floor(s/86400)+'d';
+            if(s<60) return '1m'; if(s<3600) return Math.floor(s/60)+'m'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d';
         }
-        
-        function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
-        }
-        function sendNotification(msg) {
-            if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg });
-        }
+        function requestNotificationPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }
+        function sendNotification(msg) { if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg }); }
     </script>
 </head>
 <body class="bg-white text-black h-screen flex flex-col overflow-hidden font-sans antialiased">
 
     <!-- HEADER -->
-    <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center">
+    <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center h-[60px]">
         <h1 class="text-xl font-bold tracking-tight">Whispr.</h1>
         <div class="flex items-center gap-4">
             <button id="btn-refresh" class="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-black transition"><i class="fas fa-sync-alt text-sm"></i></button>
@@ -542,55 +511,85 @@
     </header>
 
     <!-- FILTERS -->
-    <div class="bg-white z-20 pt-2 pb-0 border-b border-gray-100">
-        <div class="flex overflow-x-auto px-5 gap-6 no-scrollbar">
-            <button data-filter="all" class="filter-tab pb-3 text-sm font-medium text-black border-b-2 border-black whitespace-nowrap transition-colors">Todo</button>
-            <button data-filter="gossip" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Secretos</button>
-            <button data-filter="humor" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Humor</button>
-            <button data-filter="love" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Crush</button>
-            <button data-filter="idea" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Ideas</button>
+    <div class="bg-white z-20 pt-2 pb-0 border-b border-gray-100 h-[50px]">
+        <div class="flex overflow-x-auto px-5 gap-6 no-scrollbar items-center h-full">
+            <button data-filter="all" class="filter-tab text-sm font-medium text-black border-b-2 border-black whitespace-nowrap h-full flex items-center">Todo</button>
+            <button data-filter="gossip" class="filter-tab text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap h-full flex items-center">Secretos</button>
+            <button data-filter="humor" class="filter-tab text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap h-full flex items-center">Humor</button>
+            <button data-filter="love" class="filter-tab text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap h-full flex items-center">Crush</button>
+            <button data-filter="idea" class="filter-tab text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap h-full flex items-center">Ideas</button>
         </div>
     </div>
 
-    <!-- FEED -->
-    <main class="flex-1 overflow-y-auto relative z-10 bg-white" id="feed-container">
-        <!-- GPS Overlay -->
-        <div id="gps-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-white z-50">
-            <div class="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mb-4"></div>
-            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Localizando...</p>
+    <!-- CONTENT AREA -->
+    <div class="flex-1 relative overflow-hidden">
+        <!-- FEED VIEW -->
+        <div id="feed-container" class="absolute inset-0 overflow-y-auto p-0 pb-24 bg-white z-10">
+            <div id="gps-loading" class="flex flex-col items-center justify-center h-full">
+                <div class="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Localizando...</p>
+            </div>
         </div>
-    </main>
+        
+        <!-- MAP VIEW (Hidden by default) -->
+        <div id="map-view" class="absolute inset-0 z-0 hidden"></div>
+    </div>
 
-    <!-- BOTTOM BAR -->
-    <div class="bg-white/95 backdrop-blur border-t border-gray-100 px-6 py-3 flex items-center gap-4 z-20">
-        <span class="text-[10px] font-bold text-gray-400 uppercase w-8">Radio</span>
-        <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black">
-        <span id="rangeValue" class="text-xs font-bold text-black w-10 text-right">500m</span>
+    <!-- BOTTOM NAV BAR -->
+    <div class="bg-white border-t border-gray-100 h-[60px] flex justify-around items-center px-2 z-30">
+        <button id="tab-feed" class="flex-1 flex flex-col items-center justify-center text-black">
+            <i class="fas fa-stream text-lg"></i>
+            <span class="text-[10px] font-bold mt-1">Lista</span>
+        </button>
+        
+        <!-- Range Slider in Nav -->
+        <div class="flex-2 px-2 flex flex-col items-center justify-center w-1/2">
+            <span id="rangeValue" class="text-[10px] font-bold text-gray-400 mb-1">500m</span>
+            <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black">
+        </div>
+
+        <button id="tab-map" class="flex-1 flex flex-col items-center justify-center text-gray-400">
+            <i class="fas fa-map-marked-alt text-lg"></i>
+            <span class="text-[10px] font-bold mt-1">Mapa</span>
+        </button>
     </div>
 
     <!-- FAB -->
-    <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-float flex items-center justify-center text-xl hover:scale-105 transition-transform z-40">
+    <button id="fab-add" class="fixed bottom-20 right-5 bg-black text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform z-40">
         <i class="fas fa-plus"></i>
     </button>
 
     <!-- MODAL: NEW POST -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 animate-fade-in-up shadow-2xl">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
                 <span class="text-sm font-bold text-gray-400 uppercase">Nuevo Whispr</span>
                 <button id="btn-close-post" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
             </div>
             
-            <textarea id="post-input" rows="4" class="w-full text-lg placeholder-gray-300 border-none focus:ring-0 resize-none p-0 mb-6" placeholder="¿Qué está pasando?"></textarea>
+            <textarea id="post-input" rows="3" class="w-full text-lg placeholder-gray-300 border-none focus:ring-0 resize-none p-0 mb-4" placeholder="¿Qué está pasando?"></textarea>
             
+            <!-- Audio Recorder UI -->
+            <div class="mb-6">
+                <div class="flex items-center gap-3">
+                    <button id="btn-record" class="w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center transition-all select-none touch-none">
+                        <i class="fas fa-microphone text-xl"></i>
+                    </button>
+                    <div class="flex-1">
+                        <p id="audio-status" class="text-xs font-bold text-gray-400 hidden">Mantén pulsado para grabar...</p>
+                        <div id="audio-preview-container" class="hidden w-full"></div>
+                    </div>
+                    <button id="btn-delete-audio" class="text-red-500 hidden"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
+
             <label class="block text-xs font-bold text-gray-400 mb-2 uppercase">Categoría</label>
             <div class="flex flex-wrap gap-2 mb-6">
                 <input type="hidden" id="post-category" value="gossip">
-                <button data-cat="gossip" class="cat-radio px-3 py-1.5 rounded-full bg-black text-white text-xs font-bold border border-transparent transition-colors">Secreto</button>
-                <button data-cat="humor" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Humor</button>
-                <button data-cat="love" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Crush</button>
-                <button data-cat="idea" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Idea</button>
-                <button data-cat="promo" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Plan</button>
+                <button data-cat="gossip" class="cat-radio px-3 py-1.5 rounded-full bg-black text-white text-xs font-bold border border-transparent">Secreto</button>
+                <button data-cat="humor" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent">Humor</button>
+                <button data-cat="love" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent">Crush</button>
+                <button data-cat="promo" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent">Plan</button>
             </div>
 
             <div class="flex items-center justify-between border-t border-gray-50 pt-4">
@@ -599,36 +598,11 @@
                     <select id="post-duration" class="text-xs font-bold text-gray-600 bg-transparent border-none focus:ring-0 p-0 cursor-pointer">
                         <option value="1">1 Hora</option>
                         <option value="24" selected>24 Horas</option>
+                        <option value="-1">Para siempre</option>
                     </select>
                 </div>
-                <button id="btn-publish" class="bg-black text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg hover:bg-gray-900 transition-transform active:scale-95">Publicar</button>
+                <button id="btn-publish" class="bg-black text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg">Publicar</button>
             </div>
-        </div>
-    </div>
-
-    <!-- MODAL: PROFILE -->
-    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-6">
-        <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center shadow-2xl animate-fade-in-up">
-            <div class="w-20 h-20 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-4 border-white shadow-lg">
-                <i class="fas fa-user"></i>
-            </div>
-            
-            <div class="flex justify-center gap-8 mb-6">
-                <div>
-                    <span class="block text-xl font-bold text-black" id="prof-post-count">0</span>
-                    <span class="text-[10px] font-bold text-gray-400 uppercase">Posts</span>
-                </div>
-                <div>
-                    <span class="block text-xl font-bold text-accent-600" id="prof-react-count">0</span>
-                    <span class="text-[10px] font-bold text-gray-400 uppercase">Karma</span>
-                </div>
-            </div>
-
-            <input id="prof-pseudo" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-800 placeholder-gray-400 focus:ring-2 ring-black" placeholder="Tu Alias">
-
-            <button onclick="saveProfile()" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm mb-2">Guardar Cambios</button>
-            <button id="btn-logout" class="w-full text-red-500 py-2 font-bold text-xs">Cerrar Sesión</button>
-            <button onclick="toggleModal('modal-profile', false)" class="mt-4 text-gray-400 text-xs underline">Cancelar</button>
         </div>
     </div>
 
@@ -636,36 +610,25 @@
     <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white flex flex-col items-center justify-center p-8">
         <h2 id="auth-title" class="text-4xl font-black tracking-tighter mb-2">Whispr.</h2>
         <p class="text-gray-400 text-center mb-10 text-sm">Lo que pasa aquí, se queda aquí.</p>
-        
         <input type="hidden" id="auth-mode" value="login">
         <div class="w-full max-w-xs space-y-3">
             <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 font-medium text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Usuario" autocomplete="off">
             <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 font-medium text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Contraseña">
             <button id="auth-submit" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm shadow-lg mt-4">Entrar</button>
         </div>
-
         <p id="auth-toggle-text" class="mt-8 text-sm text-gray-500">
             <span class="text-gray-400">¿Nuevo?</span> 
             <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button>
         </p>
     </div>
 
-    <!-- MODAL: COMMENTS -->
-    <div id="modal-comments" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 flex flex-col max-h-[80vh] animate-fade-in-up shadow-2xl">
-            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
-                <h3 class="text-sm font-bold text-gray-400 uppercase">Comentarios</h3>
-                <button id="btn-close-comments" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
-            </div>
-            
-            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[150px]"></div>
-
-            <div class="flex gap-2">
-                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-full px-4 text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Tu opinión..." maxlength="140">
-                <button id="btn-send-comment" class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-900 transition-transform active:scale-95">
-                    <i class="fas fa-arrow-up text-xs"></i>
-                </button>
-            </div>
+    <!-- MODAL: PROFILE -->
+    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-6">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center shadow-2xl">
+            <div class="w-20 h-20 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold"><i class="fas fa-user"></i></div>
+            <h3 class="font-bold text-lg mb-4">Perfil</h3>
+            <button onclick="toggleModal('modal-profile', false)" class="text-gray-400 text-xs underline mb-4">Cerrar</button>
+            <button id="btn-logout" class="w-full text-red-500 py-2 font-bold text-xs border-t border-gray-100">Cerrar Sesión</button>
         </div>
     </div>
 
