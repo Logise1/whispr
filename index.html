@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- SEGURIDAD: Content Security Policy (CSP) para prevenir XSS y cargas no autorizadas -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev;">
+    
     <title>Whispr</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -101,8 +104,9 @@
             const feedback = document.getElementById('auth-feedback');
             const btn = document.getElementById('auth-submit');
 
-            if (!userIn || !passIn) {
-                showError(feedback, "Completa todos los campos");
+            // Seguridad: Validación básica de longitud
+            if (!userIn || !passIn || userIn.length > 20 || passIn.length > 100) {
+                showError(feedback, "Datos inválidos o demasiado largos");
                 return;
             }
 
@@ -234,8 +238,20 @@
             );
         }
 
+        // Seguridad: Función para reducir la precisión del GPS (Privacy fuzzing)
+        // Redondea a ~11 metros para no enviar posición exacta al servidor
+        function getFuzzyLocation(loc) {
+            if(!loc) return { lat: 0, lng: 0 };
+            return {
+                lat: parseFloat(loc.lat.toFixed(4)),
+                lng: parseFloat(loc.lng.toFixed(4))
+            };
+        }
+
         async function fetchPosts() {
-            const loc = userLocation || { lat: 40.416, lng: -3.703 };
+            const rawLoc = userLocation || { lat: 40.416, lng: -3.703 };
+            const loc = getFuzzyLocation(rawLoc); // Usar ubicación difusa
+
             if (!authToken) return;
             
             const feed = document.getElementById('feed-container');
@@ -261,6 +277,7 @@
                     await new Promise(r => setTimeout(r, 800)); 
                     posts = mockServerResponse(loc, currentRange);
                 } else {
+                    // Enviar ubicación difusa al servidor
                     const response = await fetch(`${WORKER_URL}/api/posts?lat=${loc.lat}&lng=${loc.lng}&range=${currentRange}`, {
                         headers: { 'Authorization': `Bearer ${authToken}` }
                     });
@@ -292,14 +309,21 @@
             const text = input.value.trim();
             const btn = document.getElementById('btn-publish');
 
-            if (!text || !authToken) return;
+            // Seguridad: Validación de longitud
+            if (!text || text.length > 280) {
+                alert("El mensaje no puede estar vacío ni superar los 280 caracteres.");
+                return;
+            }
+            if (!authToken) return;
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
                 if (!DEMO_MODE) {
-                    const loc = userLocation || { lat: 40.416, lng: -3.703 };
+                    const rawLoc = userLocation || { lat: 40.416, lng: -3.703 };
+                    const loc = getFuzzyLocation(rawLoc);
+
                     const res = await fetch(`${WORKER_URL}/api/posts`, {
                         method: 'POST',
                         headers: { 
@@ -307,7 +331,7 @@
                             'Authorization': `Bearer ${authToken}`
                         },
                         body: JSON.stringify({
-                            text: text,
+                            text: text, // Se envía texto raw, el servidor/render debe escapar
                             lat: loc.lat,
                             lng: loc.lng
                         })
@@ -399,12 +423,13 @@
                 const el = document.createElement('div');
                 el.className = "mb-4 border-b border-gray-50 pb-2 last:border-0";
                 const time = getTimeAgo(new Date(c.timestamp));
+                // Seguridad: Uso estricto de escapeHtml
                 el.innerHTML = `
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-bold text-xs text-gray-900">${escapeHtml(c.author)}</span>
                         <span class="text-[10px] text-gray-400">${time}</span>
                     </div>
-                    <p class="text-sm text-gray-700">${escapeHtml(c.text)}</p>
+                    <p class="text-sm text-gray-700 break-words">${escapeHtml(c.text)}</p>
                 `;
                 container.appendChild(el);
             });
@@ -413,7 +438,8 @@
         async function publishComment() {
             const input = document.getElementById('comment-input');
             const text = input.value.trim();
-            if(!text || !currentPostId) return;
+            // Seguridad: Longitud máxima comentario
+            if(!text || text.length > 140 || !currentPostId) return;
 
             const btn = document.getElementById('btn-send-comment');
             btn.disabled = true;
@@ -479,6 +505,7 @@
                 const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
                 const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
 
+                // Seguridad: escapeHtml para TODO el contenido dinámico
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center gap-3">
@@ -499,15 +526,15 @@
                         </div>
                     </div>
                     
-                    <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line">${escapeHtml(p.text)}</p>
+                    <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line break-words">${escapeHtml(p.text)}</p>
                     
                     <div class="flex items-center justify-between pt-3 border-t border-gray-50">
                         <div class="flex gap-4">
-                            <button class="group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${p.id}')">
+                            <button class="group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${escapeHtml(p.id)}')">
                                 <i class="${likeIconClass} fa-heart text-lg group-hover:scale-110 transition-transform"></i>
                                 <span class="text-xs font-bold">${likesCount}</span>
                             </button>
-                            <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${p.id}')">
+                            <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${escapeHtml(p.id)}')">
                                 <i class="far fa-comment-alt text-lg"></i>
                                 <span class="text-xs font-bold">Comentar</span>
                             </button>
@@ -542,8 +569,17 @@
             }
         }
 
+        // Seguridad: Escape mejorado para cubrir más caracteres XSS
         function escapeHtml(text) {
-            return text ? text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+            if (!text) return "";
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.toString().replace(/[&<>"']/g, function(m) { return map[m]; });
         }
 
         function formatDistance(m) {
@@ -698,8 +734,9 @@
             <input type="hidden" id="auth-mode" value="login">
             
             <div class="space-y-4 mb-6">
-                <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off">
-                <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña">
+                <!-- Seguridad: maxlength para evitar buffer overflows o datos excesivos -->
+                <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off" maxlength="20">
+                <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña" maxlength="100">
             </div>
 
             <div id="auth-feedback" class="text-rose-500 text-sm font-medium text-center mb-4 hidden bg-rose-50 p-2 rounded-lg"></div>
@@ -725,7 +762,8 @@
                 </button>
             </div>
             
-            <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..."></textarea>
+            <!-- Seguridad: maxlength -->
+            <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..." maxlength="280"></textarea>
             
             <div class="flex justify-between items-center">
                 <div class="text-xs text-gray-400 font-medium flex gap-2">
@@ -752,7 +790,8 @@
             </div>
 
             <div class="flex gap-2">
-                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario...">
+                <!-- Seguridad: maxlength -->
+                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario..." maxlength="140">
                 <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition">
                     <i class="fas fa-paper-plane text-xs"></i>
                 </button>
