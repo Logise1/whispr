@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
+    <!-- CSP -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob:;">
     
     <title>Whispr</title>
@@ -22,10 +23,8 @@
                         brand: { 500: '#111111', 600: '#000000' },
                         accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
                     },
-                    boxShadow: {
-                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
-                        'float': '0 10px 30px -5px rgba(0, 0, 0, 0.1)'
-                    }
+                    animation: { 'fade-in': 'fadeIn 0.3s ease-out' },
+                    keyframes: { fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } } }
                 }
             }
         }
@@ -93,7 +92,6 @@
                     });
                     e.target.classList.remove('text-gray-400', 'border-transparent');
                     e.target.classList.add('text-black', 'border-black');
-                    
                     state.activeFilter = e.target.dataset.filter;
                     renderPostsSmart(state.loadedPosts);
                 });
@@ -209,7 +207,6 @@
                 const posts = await res.json();
                 state.loadedPosts = posts;
                 state.lastFetchLocation = {...state.userLocation};
-                if(posts.length > 0 && document.hidden) sendNotification(`Hay ${posts.length} secretos cerca.`);
                 renderPostsSmart(posts);
             } catch(e) { console.error(e); } finally {
                 document.getElementById('btn-refresh').classList.remove('animate-spin');
@@ -262,13 +259,14 @@
             div.className = "bg-white p-5 mb-3 border-b border-gray-100 last:border-0 relative group animate-fade-in";
             
             const cat = CATEGORIES[p.category] || CATEGORIES['gossip'];
+            // GAMIFICACIÓN: Si tiene > 5 fuegos, mostramos medalla
             const popular = (p.reactions?.fire?.length || 0) > 5;
 
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-2">
                     <div class="flex items-center gap-2">
                         <span class="font-bold text-sm text-gray-900">${escapeHtml(p.pseudonym || 'Anónimo')}</span>
-                        ${popular ? '<i class="fas fa-check-circle text-accent-500 text-xs"></i>' : ''}
+                        ${popular ? '<i class="fas fa-medal text-yellow-500 text-sm" title="Popular en la zona"></i>' : ''}
                         <span class="text-gray-300 text-xs">•</span>
                         <span class="text-xs text-gray-400">${getTimeAgo(p.timestamp)}</span>
                     </div>
@@ -373,7 +371,7 @@
                     body: JSON.stringify({ text })
                 });
                 input.value = '';
-                openComments(state.currentPostId); // Recargar comentarios
+                openComments(state.currentPostId);
             } catch(e) {
                 alert('Error enviando');
             } finally {
@@ -450,21 +448,42 @@
             toggleModal('modal-profile', false);
         }
 
+        // --- GESTIÓN DE OPCIONES (Reportar / Borrar) ---
         function showOptions(postId, authorId) {
-            if(confirm("Opciones:\n\nOk: Reportar\nCancelar: Bloquear")) {
-                fetch(`${WORKER_URL}/api/report`, { 
-                    method: 'POST', 
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
-                    body: JSON.stringify({ postId, reason: 'offensive' })
-                });
-                alert("Reportado.");
+            // LÓGICA CORREGIDA: No permitir auto-reporte
+            if (authorId === state.currentUser) {
+                // Si es mi post, opción de BORRAR
+                if(confirm("¿Deseas borrar tu mensaje?")) {
+                    deletePost(postId);
+                }
             } else {
-                if(confirm(`¿Bloquear?`)) {
-                    state.blockedUsers.push(authorId);
-                    localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
-                    renderPostsSmart(state.loadedPosts); 
+                // Si es de otro, opción de REPORTAR o BLOQUEAR
+                if(confirm("Opciones para este mensaje:\n\nAceptar: REPORTAR contenido ofensivo\nCancelar: BLOQUEAR a este usuario")) {
+                    fetch(`${WORKER_URL}/api/report`, { 
+                        method: 'POST', 
+                        headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
+                        body: JSON.stringify({ postId, reason: 'offensive' })
+                    });
+                    alert("Reporte enviado. Los mensajes con +3 reportes se eliminan automáticamente.");
+                } else {
+                    if(confirm(`¿Bloquear usuario? No verás más sus mensajes.`)) {
+                        state.blockedUsers.push(authorId);
+                        localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
+                        renderPostsSmart(state.loadedPosts); 
+                    }
                 }
             }
+        }
+
+        async function deletePost(postId) {
+            try {
+                await fetch(`${WORKER_URL}/api/posts/${postId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                state.lastFetchLocation = null;
+                fetchPosts();
+            } catch(e) { alert("No se pudo borrar"); }
         }
 
         function toggleModal(id, show) {
