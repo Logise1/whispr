@@ -19,8 +19,8 @@
                 extend: {
                     fontFamily: { sans: ['Inter', 'sans-serif'] },
                     colors: { 
-                        brand: { 500: '#111111', 600: '#000000' }, // Minimalist Black Brand
-                        accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' } // Violet accents
+                        brand: { 500: '#111111', 600: '#000000' },
+                        accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
                     },
                     boxShadow: {
                         'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
@@ -51,6 +51,7 @@
             blockedUsers: JSON.parse(localStorage.getItem('whispr_blocked') || '[]'),
             loadedPosts: [],
             activeFilter: 'all',
+            currentPostId: null,
             geoWatchId: null
         };
 
@@ -80,6 +81,10 @@
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
+            // Comentarios
+            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
+            on('btn-send-comment', 'click', publishComment);
+            
             document.querySelectorAll('.filter-tab').forEach(tab => {
                 tab.addEventListener('click', (e) => {
                     document.querySelectorAll('.filter-tab').forEach(c => {
@@ -96,12 +101,10 @@
 
             document.querySelectorAll('.cat-radio').forEach(opt => {
                 opt.addEventListener('click', (e) => {
-                    // Reset visual state
                     document.querySelectorAll('.cat-radio').forEach(c => {
                         c.classList.remove('bg-black', 'text-white');
                         c.classList.add('bg-gray-100', 'text-gray-600');
                     });
-                    // Active state
                     e.currentTarget.classList.remove('bg-gray-100', 'text-gray-600');
                     e.currentTarget.classList.add('bg-black', 'text-white');
                     document.getElementById('post-category').value = e.currentTarget.dataset.cat;
@@ -282,6 +285,10 @@
                         ${renderReactionBtn(p, 'like', 'fa-thumbs-up')}
                         ${renderReactionBtn(p, 'fire', 'fa-fire')}
                         ${renderReactionBtn(p, 'dislike', 'fa-thumbs-down')}
+                        <button onclick="openComments('${p.id}')" class="flex items-center gap-1.5 group text-gray-300 hover:text-black">
+                            <i class="far fa-comment-alt"></i>
+                            <span class="text-xs font-bold">Comentar</span>
+                        </button>
                     </div>
                     <button onclick="showOptions('${p.id}', '${p.author}')" class="text-gray-300 hover:text-black"><i class="fas fa-ellipsis-h"></i></button>
                 </div>
@@ -308,6 +315,70 @@
                 const span = card.querySelector(`.count-${type}`);
                 if(span) span.innerText = count > 0 ? count : '';
             });
+        }
+
+        // --- COMENTARIOS ---
+        async function openComments(postId) {
+            state.currentPostId = postId;
+            toggleModal('modal-comments', true);
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
+            
+            try {
+                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                if(res.ok) {
+                    const comments = await res.json();
+                    renderComments(comments);
+                }
+            } catch(e) {
+                list.innerHTML = '<p class="text-center text-xs text-red-400">Error cargando comentarios</p>';
+            }
+        }
+
+        function renderComments(comments) {
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '';
+            if(comments.length === 0) {
+                list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sé el primero en opinar.</p>';
+                return;
+            }
+            comments.forEach(c => {
+                const el = document.createElement('div');
+                el.className = "mb-3 border-b border-gray-50 pb-2";
+                el.innerHTML = `
+                    <div class="flex justify-between text-[10px] text-gray-400 mb-1">
+                        <span class="font-bold text-gray-900">${escapeHtml(c.author)}</span>
+                        <span>${getTimeAgo(c.timestamp)}</span>
+                    </div>
+                    <p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>
+                `;
+                list.appendChild(el);
+            });
+        }
+
+        async function publishComment() {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if(!text || !state.currentPostId) return;
+            
+            const btn = document.getElementById('btn-send-comment');
+            btn.disabled = true;
+            
+            try {
+                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                input.value = '';
+                openComments(state.currentPostId); // Recargar comentarios
+            } catch(e) {
+                alert('Error enviando');
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         async function react(postId, type) {
@@ -440,7 +511,7 @@
 </head>
 <body class="bg-white text-black h-screen flex flex-col overflow-hidden font-sans antialiased">
 
-    <!-- HEADER: Minimalist -->
+    <!-- HEADER -->
     <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center">
         <h1 class="text-xl font-bold tracking-tight">Whispr.</h1>
         <div class="flex items-center gap-4">
@@ -451,7 +522,7 @@
         </div>
     </header>
 
-    <!-- TABS DE FILTROS: Clean Scrolling List -->
+    <!-- FILTERS -->
     <div class="bg-white z-20 pt-2 pb-0 border-b border-gray-100">
         <div class="flex overflow-x-auto px-5 gap-6 no-scrollbar">
             <button data-filter="all" class="filter-tab pb-3 text-sm font-medium text-black border-b-2 border-black whitespace-nowrap transition-colors">Todo</button>
@@ -471,19 +542,19 @@
         </div>
     </main>
 
-    <!-- BOTTOM BAR: Range Slider Compact -->
+    <!-- BOTTOM BAR -->
     <div class="bg-white/95 backdrop-blur border-t border-gray-100 px-6 py-3 flex items-center gap-4 z-20">
         <span class="text-[10px] font-bold text-gray-400 uppercase w-8">Radio</span>
         <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black">
         <span id="rangeValue" class="text-xs font-bold text-black w-10 text-right">500m</span>
     </div>
 
-    <!-- FAB: Floating Button -->
+    <!-- FAB -->
     <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-float flex items-center justify-center text-xl hover:scale-105 transition-transform z-40">
         <i class="fas fa-plus"></i>
     </button>
 
-    <!-- MODAL: NEW POST (Clean Design) -->
+    <!-- MODAL: NEW POST -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
         <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 animate-fade-in-up shadow-2xl">
             <div class="flex justify-between items-center mb-4">
@@ -493,7 +564,6 @@
             
             <textarea id="post-input" rows="4" class="w-full text-lg placeholder-gray-300 border-none focus:ring-0 resize-none p-0 mb-6" placeholder="¿Qué está pasando?"></textarea>
             
-            <!-- Categorías: Clean Pills -->
             <label class="block text-xs font-bold text-gray-400 mb-2 uppercase">Categoría</label>
             <div class="flex flex-wrap gap-2 mb-6">
                 <input type="hidden" id="post-category" value="gossip">
@@ -559,6 +629,25 @@
             <span class="text-gray-400">¿Nuevo?</span> 
             <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button>
         </p>
+    </div>
+
+    <!-- MODAL: COMMENTS -->
+    <div id="modal-comments" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 flex flex-col max-h-[80vh] animate-fade-in-up shadow-2xl">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
+                <h3 class="text-sm font-bold text-gray-400 uppercase">Comentarios</h3>
+                <button id="btn-close-comments" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
+            </div>
+            
+            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[150px]"></div>
+
+            <div class="flex gap-2">
+                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-full px-4 text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Tu opinión..." maxlength="140">
+                <button id="btn-send-comment" class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-900 transition-transform active:scale-95">
+                    <i class="fas fa-arrow-up text-xs"></i>
+                </button>
+            </div>
+        </div>
     </div>
 
     <style>
