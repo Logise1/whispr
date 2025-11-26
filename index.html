@@ -5,22 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
     
+    <!-- CSP: Permitimos Leaflet y OpenStreetMap -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; media-src 'self' data: blob:;">
     
     <title>Whispr</title>
 
+    <!-- Tailwind & Fonts -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Herramientas -->
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     
-    <!-- Leaflet -->
+    <!-- LEAFLET (MAPA) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet MarkerCluster -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css"/>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
         tailwind.config = {
@@ -31,21 +35,28 @@
                         brand: { 500: '#111111', 600: '#000000' },
                         accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
                     },
-                    height: { 'screen-dvh': '100dvh' } // Altura real móvil
+                    height: { 'screen-dvh': '100dvh' }
                 }
             }
         }
     </script>
 
     <style>
-        /* FIX MÓVIL: Safe Areas para que no se tapen los botones */
+        /* Fixes visuales para móvil */
         body { padding-bottom: env(safe-area-inset-bottom); }
         .pb-safe { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
         
-        /* Mapa Fix */
+        /* Mapa a pantalla completa dentro de su contenedor */
         #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
-        #map-view { width: 100%; height: 100%; }
-        .custom-cluster-icon div { width: 30px; height: 30px; line-height: 30px; text-align: center; }
+        #map-view { width: 100%; height: 100%; background: #f8f9fa; }
+        
+        /* Personalización Cluster Leaflet */
+        .custom-cluster-icon div { 
+            width: 36px; height: 36px; line-height: 36px; 
+            text-align: center; background-color: #000; color: #fff; 
+            border-radius: 50%; font-weight: bold; border: 2px solid #fff; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
         
         /* Audio Pulse */
         .recording-pulse { animation: pulse-red 1.5s infinite; }
@@ -81,7 +92,8 @@
             mediaRecorder: null,
             audioChunks: [],
             audioBlobBase64: null,
-            isRecording: false
+            isRecording: false,
+            currentPostId: null
         };
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -103,8 +115,7 @@
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    // Actualización visual inmediata
-                    if(state.currentTab === 'feed') updateDistancesOnly(); 
+                    if(state.currentTab === 'feed') updateDistancesOnly(); // Update instantáneo
                 });
                 slider.addEventListener('change', () => { state.lastFetchLocation = null; fetchPosts(); });
             }
@@ -123,6 +134,10 @@
                 btnRecord.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
             }
             on('btn-delete-audio', 'click', resetAudio);
+
+            // Comentarios
+            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
+            on('btn-send-comment', 'click', publishComment);
 
             // Filtros
             document.querySelectorAll('.filter-tab').forEach(tab => {
@@ -150,10 +165,6 @@
                     document.getElementById('post-category').value = e.currentTarget.dataset.cat;
                 });
             });
-            
-            // Comentarios
-            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
-            on('btn-send-comment', 'click', publishComment);
         }
 
         function on(id, evt, handler) {
@@ -220,7 +231,7 @@
             location.reload();
         }
 
-        // --- GEO & MAPS (OPTIMIZADO MÓVIL) ---
+        // --- GEO & MAPS ---
         function startLiveTracking() {
             if(!navigator.geolocation) return;
             document.getElementById('gps-loading').classList.remove('hidden');
@@ -230,10 +241,10 @@
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     document.getElementById('gps-loading').classList.add('hidden');
                     
-                    // 1. ACTUALIZACIÓN INSTANTÁNEA (Solo texto)
+                    // 1. Update Visual Inmediato (Sin Recarga)
                     updateDistancesOnly(); 
 
-                    // 2. FETCH SI ES NECESARIO (>20m para ahorrar batería/datos)
+                    // 2. Fetch si nos movemos > 20m
                     if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 20) {
                         fetchPosts();
                     } 
@@ -243,10 +254,8 @@
             );
         }
 
-        // ESTA FUNCIÓN ES LA CLAVE DE LA VELOCIDAD
         function updateDistancesOnly() {
             if (!state.userLocation) return;
-            
             const cards = document.querySelectorAll('.post-card'); 
             cards.forEach(card => {
                 const lat = parseFloat(card.dataset.lat);
@@ -256,10 +265,8 @@
                     const dist = getDist(state.userLocation, {lat, lng});
                     const label = card.querySelector('.dist-label');
                     if(label) label.innerText = formatDistance(dist);
-                    
-                    // Ocultar instantáneamente si sale del rango del slider
-                    if(dist > state.range) card.style.display = 'none';
-                    else card.style.display = 'block';
+                    // Ocultar si sale de rango
+                    card.style.display = (dist > state.range) ? 'none' : 'block';
                 }
             });
         }
@@ -282,13 +289,13 @@
                 feedContainer.classList.add('hidden');
                 mapContainer.classList.remove('hidden');
                 
-                // FIX MAPA MÓVIL: Esperar renderizado CSS
-                setTimeout(() => {
+                // Force Leaflet redraw
+                requestAnimationFrame(() => {
                     initMap();
                     if(state.mapInstance) {
-                        state.mapInstance.invalidateSize(); // Forzar ajuste
+                        state.mapInstance.invalidateSize();
                     }
-                }, 200);
+                });
             }
         }
 
@@ -296,10 +303,12 @@
             if (state.mapInstance) return;
             if (!state.userLocation) return;
 
-            state.mapInstance = L.map('map-view').setView([state.userLocation.lat, state.userLocation.lng], 15);
+            state.mapInstance = L.map('map-view', {
+                zoomControl: false, // UI más limpia
+                attributionControl: false
+            }).setView([state.userLocation.lat, state.userLocation.lng], 15);
             
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap',
                 maxZoom: 19
             }).addTo(state.mapInstance);
 
@@ -307,7 +316,7 @@
                 showCoverageOnHover: false,
                 iconCreateFunction: function(cluster) {
                     return L.divIcon({ 
-                        html: `<div class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg border-2 border-white">${cluster.getChildCount()}</div>`, 
+                        html: `<div class="cluster-content">${cluster.getChildCount()}</div>`, 
                         className: 'custom-cluster-icon', 
                         iconSize: L.point(40, 40) 
                     });
@@ -325,26 +334,29 @@
 
             filtered.forEach(p => {
                 const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
-                const marker = L.marker([p.lat, p.lng], {
-                    icon: L.divIcon({
-                        html: `<div class="text-2xl drop-shadow-md text-black"><i class="fas fa-map-marker-alt"></i></div>`,
-                        className: 'bg-transparent',
-                        iconSize: [30, 30],
-                        iconAnchor: [15, 30]
-                    })
+                
+                // Crear icono personalizado simple
+                const markerIcon = L.divIcon({
+                    html: `<i class="fas fa-map-marker-alt text-3xl drop-shadow-lg" style="color: #000;"></i>`,
+                    className: 'bg-transparent border-none',
+                    iconSize: [30, 42],
+                    iconAnchor: [15, 42],
+                    popupAnchor: [0, -40]
                 });
 
-                let audioHtml = p.audio ? `<audio controls src="${p.audio}" class="w-full mt-2 h-8"></audio>` : '';
+                const marker = L.marker([p.lat, p.lng], { icon: markerIcon });
+
+                let audioHtml = p.audio ? `<div class="mt-2"><i class="fas fa-microphone text-gray-400"></i> Nota de voz</div>` : '';
 
                 const popupContent = `
-                    <div class="font-sans min-w-[200px]">
-                        <div class="flex items-center gap-2 mb-1">
+                    <div class="font-sans w-[220px]">
+                        <div class="flex items-center gap-2 mb-1 border-b border-gray-100 pb-1">
                             <span class="font-bold text-sm">${escapeHtml(p.pseudonym)}</span>
-                            <span class="text-xs text-gray-400">${getTimeAgo(p.timestamp)}</span>
+                            <span class="text-xs text-gray-400 ml-auto">${getTimeAgo(p.timestamp)}</span>
                         </div>
-                        <p class="text-sm text-gray-800 mb-2">${escapeHtml(p.text)}</p>
+                        <p class="text-sm text-gray-800 mb-1 leading-snug">${escapeHtml(p.text)}</p>
                         ${audioHtml}
-                        <div class="text-xs font-bold uppercase mt-2 text-gray-500">${cat.label}</div>
+                        <div class="text-[10px] uppercase font-bold text-gray-400 mt-1">${cat.label}</div>
                     </div>
                 `;
                 marker.bindPopup(popupContent);
@@ -352,7 +364,7 @@
             });
         }
 
-        // --- AUDIO RECORDER ---
+        // --- AUDIO ---
         async function startRecording() {
             if (!navigator.mediaDevices) return alert("Audio no soportado");
             try {
@@ -372,7 +384,7 @@
                 btn.classList.remove('bg-gray-100', 'text-gray-500');
                 document.getElementById('audio-status').innerText = "Grabando...";
                 document.getElementById('audio-status').classList.remove('hidden');
-            } catch(err) { alert("Error micrófono"); }
+            } catch(err) { alert("Error micrófono: " + err.message); }
         }
 
         function stopRecording() {
@@ -410,7 +422,7 @@
             document.getElementById('btn-record').classList.remove('hidden');
         }
 
-        // --- POSTS ---
+        // --- POSTS & COMMENTS ---
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
             document.getElementById('btn-refresh').classList.add('animate-spin');
@@ -460,7 +472,7 @@
             filtered.forEach(p => {
                 let card = document.getElementById(`post-${p.id}`);
                 if(card) {
-                    // Update ligero si es necesario
+                    // Update ligero: solo texto
                     const distLabel = card.querySelector('.dist-label');
                     if(distLabel) distLabel.innerText = formatDistance(p.distance);
                 } else {
@@ -474,7 +486,7 @@
             const div = document.createElement('div');
             div.id = `post-${p.id}`;
             div.dataset.id = p.id;
-            div.dataset.lat = p.lat; // Datos clave para el update rápido
+            div.dataset.lat = p.lat; // Para update rápido
             div.dataset.lng = p.lng;
             div.className = "post-card bg-white p-5 mb-3 border-b border-gray-100 last:border-0";
             
@@ -533,6 +545,48 @@
                 });
                 fetchPosts();
             } catch(e) {}
+        }
+
+        async function openComments(postId) {
+            state.currentPostId = postId;
+            toggleModal('modal-comments', true);
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
+            try {
+                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                if(res.ok) renderComments(await res.json());
+            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-red-400">Error</p>'; }
+        }
+
+        function renderComments(comments) {
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '';
+            if(comments.length === 0) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sin comentarios.</p>'; return; }
+            comments.forEach(c => {
+                const el = document.createElement('div');
+                el.className = "mb-3 border-b border-gray-50 pb-2";
+                el.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>`;
+                list.appendChild(el);
+            });
+        }
+
+        async function publishComment() {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if(!text || !state.currentPostId) return;
+            const btn = document.getElementById('btn-send-comment');
+            btn.disabled = true;
+            try {
+                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                input.value = '';
+                openComments(state.currentPostId);
+            } catch(e) {} finally { btn.disabled = false; }
         }
 
         async function publishPost() {
@@ -612,49 +666,6 @@
             }
         }
 
-        // --- COMENTARIOS ---
-        async function openComments(postId) {
-            state.currentPostId = postId;
-            toggleModal('modal-comments', true);
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
-            try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
-                if(res.ok) renderComments(await res.json());
-            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-red-400">Error</p>'; }
-        }
-
-        function renderComments(comments) {
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '';
-            if(comments.length === 0) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sin comentarios.</p>'; return; }
-            comments.forEach(c => {
-                const el = document.createElement('div');
-                el.className = "mb-3 border-b border-gray-50 pb-2";
-                el.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>`;
-                list.appendChild(el);
-            });
-        }
-
-        async function publishComment() {
-            const input = document.getElementById('comment-input');
-            const text = input.value.trim();
-            if(!text || !state.currentPostId) return;
-            const btn = document.getElementById('btn-send-comment');
-            btn.disabled = true;
-            try {
-                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                });
-                input.value = '';
-                openComments(state.currentPostId);
-            } catch(e) {} finally { btn.disabled = false; }
-        }
-
         // --- UTILS ---
         function toggleModal(id, show) {
             const el = document.getElementById(id);
@@ -676,7 +687,7 @@
         function sendNotification(msg) { if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg }); }
     </script>
 </head>
-<body class="bg-white text-black h-screen-dvh flex flex-col overflow-hidden font-sans antialiased">
+<body class="bg-white text-black h-screen-dvh flex flex-col overflow-hidden font-sans antialiased pb-safe">
 
     <!-- HEADER -->
     <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center h-[60px]">
@@ -713,7 +724,7 @@
         </div>
     </div>
 
-    <!-- BOTTOM NAV -->
+    <!-- BOTTOM NAV (Safe area fix) -->
     <div class="bg-white border-t border-gray-100 h-[60px] flex justify-around items-center px-2 z-30 pb-safe">
         <button id="tab-feed" class="flex-1 flex flex-col items-center justify-center text-black"><i class="fas fa-stream text-lg"></i><span class="text-[10px] font-bold mt-1">Lista</span></button>
         <div class="flex-2 px-2 flex flex-col items-center justify-center w-1/2">
@@ -723,7 +734,7 @@
         <button id="tab-map" class="flex-1 flex flex-col items-center justify-center text-gray-400"><i class="fas fa-map-marked-alt text-lg"></i><span class="text-[10px] font-bold mt-1">Mapa</span></button>
     </div>
 
-    <!-- FAB (Higher for mobile nav) -->
+    <!-- FAB (Position fix) -->
     <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform z-40"><i class="fas fa-plus"></i></button>
 
     <!-- MODALS -->
