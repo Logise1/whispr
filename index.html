@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#7c3aed">
+    <!-- CSP para seguridad -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob:;">
     
     <title>Whispr</title>
@@ -56,13 +57,7 @@
             geoWatchId: null
         };
 
-        // Audio FX
-        const soundPop = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...'); // (Placeholder corto para evitar peso excesivo, usar librería real o URL)
-        
-        function vibrate(pattern = 50) {
-            if (navigator.vibrate) navigator.vibrate(pattern);
-        }
-
+        // --- INICIALIZACIÓN ---
         document.addEventListener('DOMContentLoaded', () => {
             checkSession();
             initListeners();
@@ -81,9 +76,14 @@
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
+                    // Actualización visual local inmediata
                     renderPostsSmart(state.loadedPosts);
                 });
-                slider.addEventListener('change', fetchPosts);
+                // Fetch real al soltar el slider
+                slider.addEventListener('change', () => {
+                    state.lastFetchLocation = null; 
+                    fetchPosts();
+                });
             }
 
             // Crear Post
@@ -97,9 +97,15 @@
             // Filtros
             document.querySelectorAll('.filter-chip').forEach(chip => {
                 chip.addEventListener('click', (e) => {
-                    document.querySelectorAll('.filter-chip').forEach(c => c.classList.replace('bg-brand-600', 'bg-white'));
-                    document.querySelectorAll('.filter-chip').forEach(c => c.classList.replace('text-white', 'text-gray-600'));
+                    // UI Update
+                    document.querySelectorAll('.filter-chip').forEach(c => {
+                        c.classList.remove('bg-brand-600', 'text-white');
+                        c.classList.add('bg-white', 'text-gray-600');
+                    });
+                    e.target.classList.remove('bg-white', 'text-gray-600');
                     e.target.classList.add('bg-brand-600', 'text-white');
+                    
+                    // Logic Update
                     state.activeFilter = e.target.dataset.filter;
                     renderPostsSmart(state.loadedPosts);
                     vibrate(10);
@@ -121,6 +127,10 @@
             if(el) el.addEventListener(evt, handler);
         }
 
+        function vibrate(pattern = 50) {
+            if (navigator.vibrate) navigator.vibrate(pattern);
+        }
+
         // --- AUTH ---
         function checkSession() {
             try {
@@ -140,6 +150,21 @@
             updateProfileUI();
             toggleModal('modal-auth', false);
             startLiveTracking();
+        }
+
+        // ¡AQUÍ ESTABA EL ERROR! Esta función faltaba en la versión anterior
+        function updateProfileUI() {
+            // Actualizar botón de perfil en el header
+            const headerAvatar = document.getElementById('header-avatar-text');
+            if(headerAvatar && state.pseudonym) {
+                headerAvatar.innerText = state.pseudonym.charAt(0).toUpperCase();
+            }
+            
+            // Actualizar input del modal de perfil
+            const profileInput = document.getElementById('prof-pseudo');
+            if(profileInput && state.pseudonym) {
+                profileInput.value = state.pseudonym;
+            }
         }
 
         async function handleAuthSubmit() {
@@ -194,7 +219,8 @@
                     document.getElementById('gps-loading').classList.add('hidden');
                     document.getElementById('status-text').innerText = "En línea";
                     
-                    // Lógica de movimiento (8m)
+                    // Lógica de movimiento (8m) para evitar peticiones constantes
+                    // Pero actualizamos la UI visualmente siempre
                     if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 8) {
                         fetchPosts();
                     } else {
@@ -224,7 +250,6 @@
                 state.loadedPosts = posts;
                 state.lastFetchLocation = {...state.userLocation};
                 
-                // Notificación si hay nuevos mensajes cerca (simulado con comparación de longitud)
                 if(posts.length > 0 && document.hidden) sendNotification(`Hay ${posts.length} secretos cerca de ti`);
 
                 renderPostsSmart(posts);
@@ -241,10 +266,12 @@
 
             // 1. Filtrar (Rango, Categoría, Bloqueados)
             let filtered = posts.filter(p => {
-                p.distance = getDist(state.userLocation, p);
+                if(state.userLocation) {
+                    p.distance = getDist(state.userLocation, p);
+                }
                 if(p.distance > state.range) return false;
                 if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
-                if(state.blockedUsers.includes(p.authorId)) return false;
+                if(state.blockedUsers.includes(p.author)) return false;
                 return true;
             });
 
@@ -254,22 +281,29 @@
             document.getElementById('count-badge').innerText = filtered.length;
 
             if(filtered.length === 0) {
-                if(!document.getElementById('empty-msg')) {
+                // Solo mostrar mensaje vacío si el feed ya estaba vacío o si hemos limpiado todo
+                if(feed.children.length === 0 || feed.querySelector('#empty-msg')) {
+                    feed.innerHTML = `<div id="empty-msg" class="text-center py-20 text-gray-400 animate-pop"><i class="fas fa-wind text-4xl mb-3"></i><p>Nada por aquí...</p></div>`;
+                } else {
+                    // Si había cosas y ahora no, limpiamos
                     feed.innerHTML = `<div id="empty-msg" class="text-center py-20 text-gray-400 animate-pop"><i class="fas fa-wind text-4xl mb-3"></i><p>Nada por aquí...</p></div>`;
                 }
                 return;
             }
             
-            // Limpiar mensaje vacío
+            // Limpiar mensaje vacío si existe
             const empty = document.getElementById('empty-msg');
             if(empty) empty.remove();
 
-            // 3. Diffing simple
-            const ids = new Set(filtered.map(p => p.id));
+            // 3. Diffing simple para evitar parpadeo
+            const currentIds = new Set(filtered.map(p => p.id));
+            
+            // Eliminar viejos
             Array.from(feed.children).forEach(c => {
-                if(c.dataset.id && !ids.has(c.dataset.id)) c.remove();
+                if(c.dataset.id && !currentIds.has(c.dataset.id)) c.remove();
             });
 
+            // Añadir nuevos o actualizar existentes
             filtered.forEach(p => {
                 let card = document.getElementById(`post-${p.id}`);
                 if(card) {
@@ -288,8 +322,7 @@
             div.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100 animate-pop relative overflow-hidden group";
             
             const cat = CATEGORIES[p.category] || CATEGORIES['gossip'];
-            const isMe = p.author === state.currentUser;
-            const popular = (p.reactions?.fire?.length || 0) > 5; // Lógica medalla
+            const popular = (p.reactions?.fire?.length || 0) > 5; // Medalla
 
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-3">
@@ -334,10 +367,12 @@
         function renderReactionBtn(p, type, emoji) {
             const count = (p.reactions && p.reactions[type] ? p.reactions[type].length : 0);
             const active = (p.reactions && p.reactions[type] && p.reactions[type].includes(state.currentUser));
+            
+            // Usamos clases dinámicas en lugar de onclick inline complejo
             return `
-                <button onclick="react('${p.id}', '${type}')" class="flex items-center gap-1 px-2 py-1 rounded-full transition hover:bg-gray-100 ${active ? 'bg-brand-50 border border-brand-200 scale-105' : ''}">
+                <button onclick="react('${p.id}', '${type}')" class="btn-react flex items-center gap-1 px-2 py-1 rounded-full transition hover:bg-gray-100 ${active ? 'bg-brand-50 border border-brand-200 scale-105' : ''}" data-type="${type}">
                     <span class="text-lg filter ${active ? '' : 'grayscale opacity-60'}">${emoji}</span>
-                    <span class="text-xs font-bold text-gray-600 count-${type}">${count > 0 ? count : ''}</span>
+                    <span class="text-xs font-bold text-gray-600 count-label">${count > 0 ? count : ''}</span>
                 </button>
             `;
         }
@@ -345,25 +380,39 @@
         function updateCard(card, p) {
             // Actualizar distancia
             card.querySelector('.dist-label').innerText = formatDistance(p.distance);
-            // Actualizar contadores reacciones
-            ['like', 'dislike', 'fire'].forEach(type => {
+            
+            // Actualizar botones de reacción
+            const buttons = card.querySelectorAll('.btn-react');
+            buttons.forEach(btn => {
+                const type = btn.dataset.type;
                 const count = p.reactions?.[type]?.length || 0;
-                const span = card.querySelector(`.count-${type}`);
-                if(span) span.innerText = count > 0 ? count : '';
+                const active = p.reactions?.[type]?.includes(state.currentUser);
+                
+                // Actualizar contador
+                const label = btn.querySelector('.count-label');
+                if(label) label.innerText = count > 0 ? count : '';
+                
+                // Actualizar estilos visuales
+                const icon = btn.querySelector('span.text-lg');
+                if(active) {
+                    btn.classList.add('bg-brand-50', 'border', 'border-brand-200', 'scale-105');
+                    icon.classList.remove('grayscale', 'opacity-60');
+                } else {
+                    btn.classList.remove('bg-brand-50', 'border', 'border-brand-200', 'scale-105');
+                    icon.classList.add('grayscale', 'opacity-60');
+                }
             });
         }
 
         async function react(postId, type) {
             vibrate(30);
-            // Optimistic update (complejo de implementar en DOM raw, mejor esperar respuesta rápida o usar frameworks reactivos)
-            // Aquí haremos la llamada directa
             try {
                 await fetch(`${WORKER_URL}/api/posts/react`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ postId, type })
                 });
-                // Recargar en background silencioso
+                // Recargar para ver cambios
                 fetchPosts();
             } catch(e) {}
         }
@@ -424,6 +473,7 @@
             if(newPseudo) {
                 state.pseudonym = newPseudo;
                 localStorage.setItem('whispr_pseudonym', newPseudo);
+                updateProfileUI();
             }
             toggleModal('modal-profile', false);
         }
@@ -432,9 +482,16 @@
             const card = document.getElementById(`post-${id}`);
             if(!card) return;
             
-            // Generar imagen con html2canvas
+            // Clonamos para limpiar botones antes de foto
+            const clone = card.cloneNode(true);
+            clone.querySelector('.border-t').remove(); // Quitar botones
+            clone.style.position = 'absolute';
+            clone.style.left = '-9999px';
+            clone.style.width = '350px';
+            document.body.appendChild(clone);
+
             try {
-                const canvas = await html2canvas(card, { scale: 2, backgroundColor: '#ffffff' });
+                const canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff' });
                 canvas.toBlob(blob => {
                     const file = new File([blob], "whispr_share.png", { type: "image/png" });
                     if(navigator.share) {
@@ -444,23 +501,24 @@
                     }
                 });
             } catch(e) { console.error(e); }
+            document.body.removeChild(clone);
         }
 
         function showOptions(postId, authorId) {
-            if(confirm("¿Qué deseas hacer?\n\nAceptar: Reportar mensaje\nCancelar: Bloquear usuario")) {
+            if(confirm("Opciones:\n\nAceptar: Reportar mensaje\nCancelar: Bloquear usuario")) {
                 // Reportar
                 fetch(`${WORKER_URL}/api/report`, { 
                     method: 'POST', 
                     headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
                     body: JSON.stringify({ postId, reason: 'offensive' })
                 });
-                alert("Reporte enviado. Gracias por mantener la comunidad segura.");
+                alert("Reporte enviado.");
             } else {
                 // Bloquear
-                if(confirm(`¿Bloquear a este usuario? No verás más sus mensajes.`)) {
+                if(confirm(`¿Bloquear usuario?`)) {
                     state.blockedUsers.push(authorId);
                     localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
-                    renderPostsSmart(state.loadedPosts); // Re-render para ocultar
+                    renderPostsSmart(state.loadedPosts); 
                 }
             }
         }
@@ -507,7 +565,7 @@
         }
         function sendNotification(msg) {
             if("Notification" in window && Notification.permission === "granted") {
-                new Notification("Whispr", { body: msg, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913564.png' });
+                new Notification("Whispr", { body: msg });
             }
         }
     </script>
@@ -524,7 +582,9 @@
         </div>
         <div class="flex items-center gap-3">
             <button id="btn-refresh" class="w-9 h-9 rounded-full bg-gray-50 text-gray-500 hover:text-brand-600 transition flex items-center justify-center"><i class="fas fa-sync-alt"></i></button>
-            <button id="btn-profile" class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center"><i class="fas fa-user"></i></button>
+            <button id="btn-profile" class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm">
+                <span id="header-avatar-text">?</span>
+            </button>
         </div>
     </header>
 
@@ -564,7 +624,7 @@
         </div>
     </div>
 
-    <!-- FAB (Fixed & Elevated) -->
+    <!-- FAB (Fixed & Elevated - Arreglado posición) -->
     <button id="fab-add" class="fixed bottom-24 right-6 bg-brand-600 text-white w-14 h-14 rounded-2xl shadow-xl shadow-brand-600/40 flex items-center justify-center text-xl hover:scale-110 hover:rotate-90 transition-all duration-300 z-50">
         <i class="fas fa-plus"></i>
     </button>
@@ -581,7 +641,7 @@
         <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl p-4 mb-6 font-bold focus:ring-2 ring-brand-500" placeholder="Contraseña">
         <button id="auth-submit" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg shadow-lg">Entrar</button>
         <p id="auth-toggle-text" class="mt-6 text-sm text-gray-500">¿Nuevo? <button class="text-brand-600 font-bold" onclick="toggleAuthMode('register')">Regístrate</button></p>
-        <p class="mt-auto text-[10px] text-gray-400 text-center max-w-xs">Al entrar aceptas que tu ubicación aproximada se usará para mostrarte contenido. Los comportamientos ofensivos serán bloqueados.</p>
+        <p class="mt-auto text-[10px] text-gray-400 text-center max-w-xs">Al entrar aceptas que tu ubicación aproximada se usará para mostrarte contenido.</p>
     </div>
 
     <!-- New Post -->
