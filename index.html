@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- SEGURIDAD: Content Security Policy (CSP) para prevenir XSS y cargas no autorizadas -->
+    <!-- SEGURIDAD: Content Security Policy (CSP) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev;">
     
     <title>Whispr</title>
@@ -16,11 +16,14 @@
         const DEMO_MODE = false; 
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
 
-        let userLocation = null;
-        let currentRange = 500;
+        let userLocation = null;       // Ubicación actual precisa
+        let lastFetchLocation = null;  // Última ubicación donde pedimos datos al servidor
+        let currentRange = 250; 
         let authToken = null;
         let currentUser = null;
         let currentPostId = null;
+        let loadedPosts = [];          // Cache local para recalcular metros sin llamar a la API
+        let geoWatchId = null;         // ID del rastreador GPS
 
         document.addEventListener('DOMContentLoaded', () => {
             try {
@@ -38,9 +41,16 @@
                     rangeSlider.addEventListener('change', (e) => { 
                         currentRange = parseInt(e.target.value);
                         updateRangeUI(currentRange);
+                        // Al soltar el slider, forzamos recarga
+                        lastFetchLocation = null; 
                         fetchPosts(); 
                     });
-                    rangeSlider.addEventListener('input', (e) => updateRangeUI(e.target.value));
+                    rangeSlider.addEventListener('input', (e) => {
+                        updateRangeUI(e.target.value);
+                        // Mientras desliza, filtramos visualmente lo que ya tenemos
+                        currentRange = parseInt(e.target.value);
+                        renderPosts(loadedPosts); 
+                    });
                 }
 
                 safeAddListener('btn-publish', 'click', publishPost);
@@ -48,7 +58,7 @@
                 safeAddListener('btn-cancel-post', 'click', () => toggleModal('modal-new-post', false));
                 
                 safeAddListener('auth-submit', 'click', handleAuthSubmit);
-                safeAddListener('btn-refresh', 'click', fetchPosts);
+                safeAddListener('btn-refresh', 'click', () => { lastFetchLocation = null; fetchPosts(); });
 
                 safeAddListener('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
                 safeAddListener('btn-send-comment', 'click', publishComment);
@@ -93,7 +103,7 @@
                     if(nameEl) nameEl.innerText = `@${currentUser}`;
                 }
                 toggleModal('modal-auth', false);
-                getLocation();
+                startLiveTracking();
             } catch (e) {}
         }
 
@@ -104,7 +114,6 @@
             const feedback = document.getElementById('auth-feedback');
             const btn = document.getElementById('auth-submit');
 
-            // Seguridad: Validación básica de longitud
             if (!userIn || !passIn || userIn.length > 20 || passIn.length > 100) {
                 showError(feedback, "Datos inválidos o demasiado largos");
                 return;
@@ -176,6 +185,7 @@
             try {
                 localStorage.removeItem('whispr_token');
                 localStorage.removeItem('whispr_username');
+                if (geoWatchId) navigator.geolocation.clearWatch(geoWatchId);
             } catch(e){}
             authToken = null;
             currentUser = null;
@@ -204,54 +214,92 @@
             }
         }
 
-        function getLocation() {
+        // --- SISTEMA DE RASTREO EN VIVO ---
+        
+        function startLiveTracking() {
             const statusText = document.getElementById('status-text');
             const statusIcon = document.getElementById('status-icon');
             
             if (!navigator.geolocation) {
                 if(statusText) statusText.innerText = 'GPS Inactivo';
                 if(statusIcon) statusIcon.className = "fas fa-ban text-red-400";
+                // Intento fallback
                 fetchPosts(); 
                 return;
             }
 
-            if(statusText) statusText.innerText = 'Buscando...';
-            if(statusIcon) statusIcon.className = "fas fa-circle-notch fa-spin text-violet-500";
+            if(statusText) statusText.innerText = 'Conectando satélites...';
+            if(statusIcon) statusIcon.className = "fas fa-satellite-dish fa-spin text-violet-500";
 
-            navigator.geolocation.getCurrentPosition(
+            // Usamos watchPosition en lugar de getCurrentPosition
+            geoWatchId = navigator.geolocation.watchPosition(
                 (position) => {
-                    userLocation = {
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude
-                    };
-                    if(statusText) statusText.innerText = 'Activo';
-                    if(statusIcon) statusIcon.className = "fas fa-check-circle text-green-500";
-                    fetchPosts();
+                    const newLat = position.coords.latitude;
+                    const newLng = position.coords.longitude;
+                    
+                    userLocation = { lat: newLat, lng: newLng };
+
+                    if(statusText) statusText.innerText = 'Ubicación Precisa';
+                    if(statusIcon) statusIcon.className = "fas fa-crosshairs text-green-500";
+
+                    handleMovement();
                 },
                 (error) => {
-                    if(statusText) statusText.innerText = 'Sin señal';
-                    if(statusIcon) statusIcon.className = "fas fa-exclamation-circle text-red-500";
-                    userLocation = { lat: 40.416, lng: -3.703 }; 
-                    fetchPosts();
+                    console.warn("Geo Warning:", error.message);
+                    if(statusText) statusText.innerText = 'Señal débil';
+                    if(statusIcon) statusIcon.className = "fas fa-exclamation-triangle text-amber-500";
+                    // Si falla el watch, usamos una ubicación default solo para no romper la UI,
+                    // pero mantenemos el intento.
+                    if (!userLocation) {
+                        userLocation = { lat: 40.416, lng: -3.703 }; 
+                        fetchPosts();
+                    }
                 },
-                { enableHighAccuracy: true, timeout: 5000 }
+                { 
+                    enableHighAccuracy: true, // Máxima precisión solicitada
+                    maximumAge: 0,            // No usar caché
+                    timeout: 10000 
+                }
             );
         }
 
-        // Seguridad: Función para reducir la precisión del GPS (Privacy fuzzing)
-        // Redondea a ~11 metros para no enviar posición exacta al servidor
-        function getFuzzyLocation(loc) {
-            if(!loc) return { lat: 0, lng: 0 };
-            return {
-                lat: parseFloat(loc.lat.toFixed(4)),
-                lng: parseFloat(loc.lng.toFixed(4))
-            };
+        function handleMovement() {
+            if (!userLocation) return;
+
+            // 1. Si no hemos cargado datos nunca, cargar ahora
+            if (!lastFetchLocation) {
+                fetchPosts();
+                return;
+            }
+
+            // 2. Calcular distancia desde la última carga
+            const dist = getDist(
+                userLocation.lat, userLocation.lng,
+                lastFetchLocation.lat, lastFetchLocation.lng
+            );
+
+            // 3. Lógica de actualización
+            // Si nos hemos movido más de 8 metros -> "Actualiza todo" (Fetch server)
+            if (dist > 8) {
+                console.log(`Movimiento detectado (${Math.round(dist)}m). Actualizando feed...`);
+                fetchPosts();
+            } else {
+                // Si nos movemos poco -> Solo actualizar contadores visuales
+                // Esto hace que los metros bajen/suban mientras caminas sin llamar a la API
+                updateLocalDistances();
+            }
+        }
+
+        // Actualiza solo los números en pantalla usando la caché (loadedPosts)
+        function updateLocalDistances() {
+            if (!loadedPosts || loadedPosts.length === 0) return;
+            // Recalculamos distancias en memoria y re-renderizamos
+            // RenderPosts es muy rápido para < 100 items
+            renderPosts(loadedPosts); 
         }
 
         async function fetchPosts() {
-            const rawLoc = userLocation || { lat: 40.416, lng: -3.703 };
-            const loc = getFuzzyLocation(rawLoc); // Usar ubicación difusa
-
+            const loc = userLocation || { lat: 40.416, lng: -3.703 };
             if (!authToken) return;
             
             const feed = document.getElementById('feed-container');
@@ -259,6 +307,7 @@
             
             if(btnRefresh) btnRefresh.classList.add('animate-spin');
 
+            // Skeleton solo si está vacío
             if (feed && feed.children.length === 0) {
                 feed.innerHTML = [1,2,3].map(() => `
                     <div class="bg-white p-5 rounded-3xl border border-gray-100 mb-4 animate-pulse">
@@ -277,7 +326,7 @@
                     await new Promise(r => setTimeout(r, 800)); 
                     posts = mockServerResponse(loc, currentRange);
                 } else {
-                    // Enviar ubicación difusa al servidor
+                    // Enviamos coordenadas exactas para máxima precisión
                     const response = await fetch(`${WORKER_URL}/api/posts?lat=${loc.lat}&lng=${loc.lng}&range=${currentRange}`, {
                         headers: { 'Authorization': `Bearer ${authToken}` }
                     });
@@ -288,9 +337,15 @@
                     }
                     posts = await response.json();
                 }
-                renderPosts(posts);
+
+                // Guardamos en caché y actualizamos punto de referencia
+                loadedPosts = posts;
+                lastFetchLocation = { ...loc }; 
+                
+                renderPosts(loadedPosts);
+
             } catch (error) {
-                if(feed) {
+                if(feed && feed.children.length === 0) {
                     feed.innerHTML = `
                         <div class="text-center py-12">
                             <div class="bg-red-50 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -307,23 +362,20 @@
         async function publishPost() {
             const input = document.getElementById('post-input');
             const text = input.value.trim();
-            const btn = document.getElementById('btn-publish');
-
-            // Seguridad: Validación de longitud
             if (!text || text.length > 280) {
                 alert("El mensaje no puede estar vacío ni superar los 280 caracteres.");
                 return;
             }
             if (!authToken) return;
 
+            const btn = document.getElementById('btn-publish');
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
                 if (!DEMO_MODE) {
-                    const rawLoc = userLocation || { lat: 40.416, lng: -3.703 };
-                    const loc = getFuzzyLocation(rawLoc);
-
+                    const loc = userLocation || { lat: 40.416, lng: -3.703 };
+                    
                     const res = await fetch(`${WORKER_URL}/api/posts`, {
                         method: 'POST',
                         headers: { 
@@ -331,7 +383,7 @@
                             'Authorization': `Bearer ${authToken}`
                         },
                         body: JSON.stringify({
-                            text: text, // Se envía texto raw, el servidor/render debe escapar
+                            text: text, 
                             lat: loc.lat,
                             lng: loc.lng
                         })
@@ -340,6 +392,7 @@
                 }
                 input.value = '';
                 toggleModal('modal-new-post', false);
+                lastFetchLocation = null; // Forzar recarga inmediata
                 fetchPosts();
             } catch (error) {
                 alert(error.message);
@@ -423,7 +476,6 @@
                 const el = document.createElement('div');
                 el.className = "mb-4 border-b border-gray-50 pb-2 last:border-0";
                 const time = getTimeAgo(new Date(c.timestamp));
-                // Seguridad: Uso estricto de escapeHtml
                 el.innerHTML = `
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-bold text-xs text-gray-900">${escapeHtml(c.author)}</span>
@@ -438,7 +490,6 @@
         async function publishComment() {
             const input = document.getElementById('comment-input');
             const text = input.value.trim();
-            // Seguridad: Longitud máxima comentario
             if(!text || text.length > 140 || !currentPostId) return;
 
             const btn = document.getElementById('btn-send-comment');
@@ -464,32 +515,42 @@
             }
         }
 
+        // Renderiza posts usando userLocation actual para recalcular distancias
         function renderPosts(posts) {
             const feed = document.getElementById('feed-container');
             const countBadge = document.getElementById('count-badge');
             
             if(!feed) return;
 
+            // Filtramos en cliente por el rango actual del slider (por si cambió)
+            const filteredPosts = posts.filter(p => {
+                // Recalcular distancia con ubicación actual precisa
+                if (userLocation) {
+                    p.distance = getDist(userLocation.lat, userLocation.lng, p.lat, p.lng);
+                }
+                return p.distance <= currentRange;
+            });
+
             feed.innerHTML = '';
             if(countBadge) {
-                countBadge.innerText = posts.length;
+                countBadge.innerText = filteredPosts.length;
                 countBadge.classList.remove('hidden');
-                if(posts.length === 0) countBadge.classList.add('hidden');
+                if(filteredPosts.length === 0) countBadge.classList.add('hidden');
             }
 
-            if (posts.length === 0) {
+            if (filteredPosts.length === 0) {
                 feed.innerHTML = `
                     <div class="flex flex-col items-center justify-center py-20 text-center px-6">
                         <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
                             <i class="fas fa-wind text-3xl"></i>
                         </div>
                         <h3 class="text-gray-800 font-bold text-lg mb-1">Está muy tranquilo</h3>
-                        <p class="text-gray-400 text-sm max-w-xs mx-auto">Nadie ha escrito nada en este radio todavía.</p>
+                        <p class="text-gray-400 text-sm max-w-xs mx-auto">Nadie ha escrito nada en este radio (${currentRange}m) todavía.</p>
                     </div>`;
                 return;
             }
 
-            posts.forEach(p => {
+            filteredPosts.forEach(p => {
                 const isMe = p.author === currentUser;
                 const timeAgo = getTimeAgo(new Date(p.timestamp));
                 
@@ -505,7 +566,6 @@
                 const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
                 const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
 
-                // Seguridad: escapeHtml para TODO el contenido dinámico
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex items-center gap-3">
@@ -569,7 +629,6 @@
             }
         }
 
-        // Seguridad: Escape mejorado para cubrir más caracteres XSS
         function escapeHtml(text) {
             if (!text) return "";
             const map = {
@@ -698,7 +757,7 @@
                 <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Radio de escucha</span>
                 <span id="rangeValue" class="text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1 rounded-lg">500m</span>
             </div>
-            <input type="range" min="100" max="5000" value="500" step="100" id="rangeSlider" class="w-full cursor-pointer">
+            <input type="range" min="50" max="500" value="250" step="50" id="rangeSlider" class="w-full cursor-pointer">
         </div>
     </div>
 
@@ -734,7 +793,6 @@
             <input type="hidden" id="auth-mode" value="login">
             
             <div class="space-y-4 mb-6">
-                <!-- Seguridad: maxlength para evitar buffer overflows o datos excesivos -->
                 <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off" maxlength="20">
                 <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña" maxlength="100">
             </div>
@@ -762,7 +820,6 @@
                 </button>
             </div>
             
-            <!-- Seguridad: maxlength -->
             <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..." maxlength="280"></textarea>
             
             <div class="flex justify-between items-center">
@@ -790,7 +847,6 @@
             </div>
 
             <div class="flex gap-2">
-                <!-- Seguridad: maxlength -->
                 <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario..." maxlength="140">
                 <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition">
                     <i class="fas fa-paper-plane text-xs"></i>
