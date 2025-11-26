@@ -93,7 +93,8 @@
             audioChunks: [],
             audioBlobBase64: null,
             isRecording: false,
-            currentPostId: null
+            currentPostId: null,
+            audioMimeType: null // Agregado: para almacenar el tipo MIME detectado
         };
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -128,6 +129,7 @@
             // Audio
             const btnRecord = document.getElementById('btn-record');
             if(btnRecord){
+                // Usamos mousedown/up y touchstart/end para grabar
                 btnRecord.addEventListener('mousedown', startRecording);
                 btnRecord.addEventListener('mouseup', stopRecording);
                 btnRecord.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
@@ -369,14 +371,25 @@
             if (!navigator.mediaDevices) return alert("Audio no soportado");
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                let mimeType = 'audio/webm';
-                if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/mp4'; 
+                
+                // --- Corrección del MIME Type ---
+                let mimeType = 'audio/webm;codecs=opus';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'audio/mp4';
+                    if (!MediaRecorder.isTypeSupported(mimeType)) {
+                         mimeType = 'audio/webm'; // Fallback simple
+                    }
+                }
+                state.audioMimeType = mimeType;
+                // --- Fin Corrección ---
 
-                state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+                state.mediaRecorder = new MediaRecorder(stream, { mimeType: state.audioMimeType });
                 state.audioChunks = [];
                 state.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.audioChunks.push(e.data); };
                 state.mediaRecorder.onstop = processAudio;
-                state.mediaRecorder.start(100); 
+                
+                // Usamos un buffer de 1000ms para asegurar que haya datos de audio válidos.
+                state.mediaRecorder.start(1000); 
                 state.isRecording = true;
                 
                 const btn = document.getElementById('btn-record');
@@ -390,6 +403,7 @@
         function stopRecording() {
             if (!state.isRecording || !state.mediaRecorder) return;
             state.mediaRecorder.stop();
+            // Los tracks se detienen después de que se procese el audio para evitar que el navegador cierre la fuente demasiado pronto.
             state.mediaRecorder.stream.getTracks().forEach(track => track.stop());
             state.isRecording = false;
             const btn = document.getElementById('btn-record');
@@ -398,7 +412,15 @@
         }
 
         function processAudio() {
-            const mimeType = state.audioChunks.length > 0 ? state.audioChunks[0].type : 'audio/webm';
+            // Utilizamos el MIME type guardado en el estado para asegurar la compatibilidad del Blob
+            const mimeType = state.audioMimeType;
+            if (state.audioChunks.length === 0) {
+                 // Si no hay chunks, el audio es 0:00. Reseteamos y mostramos error suave.
+                 document.getElementById('audio-status').innerText = "¡No se grabó nada! Intenta de nuevo.";
+                 setTimeout(resetAudio, 3000); 
+                 return;
+            }
+
             const blob = new Blob(state.audioChunks, { type: mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
@@ -416,6 +438,7 @@
         function resetAudio() {
             state.audioBlobBase64 = null;
             state.audioChunks = [];
+            state.audioMimeType = null;
             document.getElementById('audio-preview-container').classList.add('hidden');
             document.getElementById('audio-status').classList.add('hidden');
             document.getElementById('btn-delete-audio').classList.add('hidden');
@@ -685,6 +708,22 @@
         }
         function requestNotificationPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }
         function sendNotification(msg) { if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg }); }
+        
+        function toggleAuthMode(mode) {
+            const authMode = document.getElementById('auth-mode');
+            const authSubmit = document.getElementById('auth-submit');
+            const toggleText = document.getElementById('auth-toggle-text');
+            
+            if (mode === 'register') {
+                authMode.value = 'register';
+                authSubmit.innerText = 'Crear cuenta';
+                toggleText.innerHTML = `<span class="text-gray-400">¿Ya tienes cuenta?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('login')">Entrar</button>`;
+            } else {
+                authMode.value = 'login';
+                authSubmit.innerText = 'Entrar';
+                toggleText.innerHTML = `<span class="text-gray-400">¿Nuevo?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button>`;
+            }
+        }
     </script>
 </head>
 <body class="bg-white text-black h-screen-dvh flex flex-col overflow-hidden font-sans antialiased pb-safe">
