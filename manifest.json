@@ -2,7 +2,7 @@
   "name": "Whispr. Descubre el Secreto",
   "short_name": "Whispr",
   "description": "Una aplicación de susurros basados en la ubicación y en tiempo real.",
-  "start_url": "/?utm_source=pwa",
+  "start_url": "/whispr/?utm_source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
