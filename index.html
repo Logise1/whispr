@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- SEGURIDAD: Content Security Policy (CSP) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- CSP para seguridad -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev;">
     
     <title>Whispr</title>
@@ -13,17 +13,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <script>
+        // CONFIGURACIÓN
         const DEMO_MODE = false; 
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
 
-        let userLocation = null;       // Ubicación actual precisa
-        let lastFetchLocation = null;  // Última ubicación donde pedimos datos al servidor
+        let userLocation = null;       
+        let lastFetchLocation = null;  
         let currentRange = 250; 
         let authToken = null;
         let currentUser = null;
         let currentPostId = null;
-        let loadedPosts = [];          // Cache local para recalcular metros sin llamar a la API
-        let geoWatchId = null;         // ID del rastreador GPS
+        let loadedPosts = [];          
+        let geoWatchId = null;         
 
         document.addEventListener('DOMContentLoaded', () => {
             try {
@@ -41,15 +42,13 @@
                     rangeSlider.addEventListener('change', (e) => { 
                         currentRange = parseInt(e.target.value);
                         updateRangeUI(currentRange);
-                        // Al soltar el slider, forzamos recarga
                         lastFetchLocation = null; 
                         fetchPosts(); 
                     });
                     rangeSlider.addEventListener('input', (e) => {
                         updateRangeUI(e.target.value);
-                        // Mientras desliza, filtramos visualmente lo que ya tenemos
                         currentRange = parseInt(e.target.value);
-                        renderPosts(loadedPosts); 
+                        renderPostsSmart(loadedPosts); 
                     });
                 }
 
@@ -59,10 +58,12 @@
                 
                 safeAddListener('auth-submit', 'click', handleAuthSubmit);
                 safeAddListener('btn-refresh', 'click', () => { lastFetchLocation = null; fetchPosts(); });
+                safeAddListener('btn-retry-gps', 'click', startLiveTracking); 
 
                 safeAddListener('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
                 safeAddListener('btn-send-comment', 'click', publishComment);
 
+                // Avatar sync
                 const observer = new MutationObserver(() => {
                     const sm = document.getElementById('user-avatar-text');
                     const lg = document.getElementById('user-avatar-text-lg');
@@ -107,6 +108,7 @@
             } catch (e) {}
         }
 
+        // --- AUTH ---
         async function handleAuthSubmit() {
             const mode = document.getElementById('auth-mode').value; 
             const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
@@ -214,51 +216,54 @@
             }
         }
 
-        // --- SISTEMA DE RASTREO EN VIVO ---
+        // --- GPS ALTA PRECISIÓN ---
         
         function startLiveTracking() {
             const statusText = document.getElementById('status-text');
             const statusIcon = document.getElementById('status-icon');
+            const errorOverlay = document.getElementById('gps-error-overlay');
+            const loadingOverlay = document.getElementById('gps-loading-overlay');
             
             if (!navigator.geolocation) {
-                if(statusText) statusText.innerText = 'GPS Inactivo';
-                if(statusIcon) statusIcon.className = "fas fa-ban text-red-400";
-                // Intento fallback
-                fetchPosts(); 
+                if(errorOverlay) errorOverlay.classList.remove('hidden');
                 return;
             }
+
+            // Mostrar "Esperando GPS"
+            if(loadingOverlay) loadingOverlay.classList.remove('hidden');
+            if(errorOverlay) errorOverlay.classList.add('hidden');
 
             if(statusText) statusText.innerText = 'Conectando satélites...';
             if(statusIcon) statusIcon.className = "fas fa-satellite-dish fa-spin text-violet-500";
 
-            // Usamos watchPosition en lugar de getCurrentPosition
             geoWatchId = navigator.geolocation.watchPosition(
                 (position) => {
+                    // ÉXITO: Tenemos ubicación real
                     const newLat = position.coords.latitude;
                     const newLng = position.coords.longitude;
                     
                     userLocation = { lat: newLat, lng: newLng };
 
-                    if(statusText) statusText.innerText = 'Ubicación Precisa';
+                    // Ocultar overlays
+                    if(loadingOverlay) loadingOverlay.classList.add('hidden');
+                    if(errorOverlay) errorOverlay.classList.add('hidden');
+
+                    if(statusText) statusText.innerText = 'Ubicación Real';
                     if(statusIcon) statusIcon.className = "fas fa-crosshairs text-green-500";
 
                     handleMovement();
                 },
                 (error) => {
-                    console.warn("Geo Warning:", error.message);
-                    if(statusText) statusText.innerText = 'Señal débil';
-                    if(statusIcon) statusIcon.className = "fas fa-exclamation-triangle text-amber-500";
-                    // Si falla el watch, usamos una ubicación default solo para no romper la UI,
-                    // pero mantenemos el intento.
-                    if (!userLocation) {
-                        userLocation = { lat: 40.416, lng: -3.703 }; 
-                        fetchPosts();
-                    }
+                    console.warn("GPS Error:", error.message);
+                    // ERROR: No hay ubicación. Mostramos pantalla de bloqueo.
+                    // NO usamos Madrid. El usuario quiere ubicación real.
+                    if(loadingOverlay) loadingOverlay.classList.add('hidden');
+                    if(errorOverlay) errorOverlay.classList.remove('hidden');
                 },
                 { 
-                    enableHighAccuracy: true, // Máxima precisión solicitada
-                    maximumAge: 0,            // No usar caché
-                    timeout: 10000 
+                    enableHighAccuracy: true, // Forzar GPS real
+                    maximumAge: 0,            // No cache
+                    timeout: 20000            // Esperar hasta 20s
                 }
             );
         }
@@ -266,68 +271,38 @@
         function handleMovement() {
             if (!userLocation) return;
 
-            // 1. Si no hemos cargado datos nunca, cargar ahora
             if (!lastFetchLocation) {
                 fetchPosts();
                 return;
             }
 
-            // 2. Calcular distancia desde la última carga
             const dist = getDist(
                 userLocation.lat, userLocation.lng,
                 lastFetchLocation.lat, lastFetchLocation.lng
             );
 
-            // 3. Lógica de actualización
-            // Si nos hemos movido más de 8 metros -> "Actualiza todo" (Fetch server)
+            // Refresco inteligente (> 8 metros)
             if (dist > 8) {
-                console.log(`Movimiento detectado (${Math.round(dist)}m). Actualizando feed...`);
                 fetchPosts();
             } else {
-                // Si nos movemos poco -> Solo actualizar contadores visuales
-                // Esto hace que los metros bajen/suban mientras caminas sin llamar a la API
-                updateLocalDistances();
+                // Movimiento menor: Solo actualizar contadores visuales (sin parpadeo)
+                renderPostsSmart(loadedPosts); 
             }
-        }
-
-        // Actualiza solo los números en pantalla usando la caché (loadedPosts)
-        function updateLocalDistances() {
-            if (!loadedPosts || loadedPosts.length === 0) return;
-            // Recalculamos distancias en memoria y re-renderizamos
-            // RenderPosts es muy rápido para < 100 items
-            renderPosts(loadedPosts); 
         }
 
         async function fetchPosts() {
-            const loc = userLocation || { lat: 40.416, lng: -3.703 };
-            if (!authToken) return;
+            if (!authToken || !userLocation) return;
             
-            const feed = document.getElementById('feed-container');
             const btnRefresh = document.getElementById('btn-refresh');
-            
             if(btnRefresh) btnRefresh.classList.add('animate-spin');
-
-            // Skeleton solo si está vacío
-            if (feed && feed.children.length === 0) {
-                feed.innerHTML = [1,2,3].map(() => `
-                    <div class="bg-white p-5 rounded-3xl border border-gray-100 mb-4 animate-pulse">
-                        <div class="flex items-center gap-3 mb-4">
-                            <div class="w-10 h-10 bg-gray-100 rounded-full"></div>
-                            <div class="h-3 bg-gray-100 rounded w-24"></div>
-                        </div>
-                        <div class="h-16 bg-gray-100 rounded-xl w-full"></div>
-                    </div>
-                `).join('');
-            }
 
             try {
                 let posts = [];
                 if (DEMO_MODE) {
                     await new Promise(r => setTimeout(r, 800)); 
-                    posts = mockServerResponse(loc, currentRange);
+                    posts = mockServerResponse(userLocation, currentRange);
                 } else {
-                    // Enviamos coordenadas exactas para máxima precisión
-                    const response = await fetch(`${WORKER_URL}/api/posts?lat=${loc.lat}&lng=${loc.lng}&range=${currentRange}`, {
+                    const response = await fetch(`${WORKER_URL}/api/posts?lat=${userLocation.lat}&lng=${userLocation.lng}&range=${currentRange}`, {
                         headers: { 'Authorization': `Bearer ${authToken}` }
                     });
                     
@@ -338,32 +313,160 @@
                     posts = await response.json();
                 }
 
-                // Guardamos en caché y actualizamos punto de referencia
+                // Actualizamos cache solo si hay datos o si fue una respuesta válida
                 loadedPosts = posts;
-                lastFetchLocation = { ...loc }; 
+                lastFetchLocation = { ...userLocation }; 
                 
-                renderPosts(loadedPosts);
+                renderPostsSmart(loadedPosts);
 
             } catch (error) {
-                if(feed && feed.children.length === 0) {
-                    feed.innerHTML = `
-                        <div class="text-center py-12">
-                            <div class="bg-red-50 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
-                                <i class="fas fa-wifi text-xl"></i>
-                            </div>
-                            <p class="text-gray-500 text-sm font-medium">Modo sin conexión</p>
-                        </div>`;
-                }
+                console.error(error);
             } finally {
                 if(btnRefresh) btnRefresh.classList.remove('animate-spin');
             }
+        }
+
+        // --- RENDERIZADO INTELIGENTE (Sin Parpadeo) ---
+        function renderPostsSmart(posts) {
+            const feed = document.getElementById('feed-container');
+            const countBadge = document.getElementById('count-badge');
+            
+            if(!feed) return;
+
+            // 1. Filtrar
+            const filteredPosts = posts.filter(p => {
+                if (userLocation) {
+                    p.distance = getDist(userLocation.lat, userLocation.lng, p.lat, p.lng);
+                }
+                return p.distance <= currentRange;
+            });
+
+            // Actualizar badge
+            if(countBadge) {
+                countBadge.innerText = filteredPosts.length;
+                countBadge.classList.remove('hidden');
+                if(filteredPosts.length === 0) countBadge.classList.add('hidden');
+            }
+
+            // 2. Si vacío, mostrar mensaje
+            if (filteredPosts.length === 0) {
+                // Solo si está vacío y no hay mensaje de vacío ya, lo ponemos.
+                // Usamos un ID especial para no borrarlo accidentalmente
+                if (!document.getElementById('empty-state')) {
+                    feed.innerHTML = `
+                        <div id="empty-state" class="flex flex-col items-center justify-center py-20 text-center px-6 fade-in">
+                            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
+                                <i class="fas fa-wind text-3xl"></i>
+                            </div>
+                            <h3 class="text-gray-800 font-bold text-lg mb-1">Nada cerca</h3>
+                            <p class="text-gray-400 text-sm max-w-xs mx-auto">En este radio de ${currentRange}m no hay secretos.</p>
+                        </div>`;
+                }
+                return;
+            }
+
+            // Si hay posts, quitar el mensaje de vacío si existe
+            const emptyState = document.getElementById('empty-state');
+            if (emptyState) emptyState.remove();
+
+            // 3. Diffing: Marcar todos como no vistos
+            const currentIds = new Set(filteredPosts.map(p => p.id));
+            
+            // a) Eliminar los que ya no están (salieron del rango)
+            Array.from(feed.children).forEach(child => {
+                if (child.dataset.postId && !currentIds.has(child.dataset.postId)) {
+                    child.remove();
+                }
+            });
+
+            // b) Crear o Actualizar
+            filteredPosts.forEach(p => {
+                const existingCard = document.getElementById(`post-${p.id}`);
+                
+                if (existingCard) {
+                    // UPDATE: Solo cambiamos el texto de distancia (Evita parpadeo)
+                    const distLabel = existingCard.querySelector('.distance-label');
+                    if (distLabel) distLabel.innerText = formatDistance(p.distance);
+                    
+                    const likesLabel = existingCard.querySelector('.likes-count');
+                    if (likesLabel) likesLabel.innerText = p.likes || 0;
+                    
+                    const likeBtn = existingCard.querySelector('.btn-like i');
+                    if (likeBtn) {
+                         if(p.likedByMe && likeBtn.classList.contains('far')) {
+                             likeBtn.className = "fas fa-heart text-lg group-hover:scale-110 transition-transform text-rose-500";
+                         } else if(!p.likedByMe && likeBtn.classList.contains('fas')) {
+                             likeBtn.className = "far fa-heart text-lg group-hover:scale-110 transition-transform";
+                         }
+                    }
+
+                } else {
+                    // CREATE: Insertar nuevo
+                    const card = createPostCard(p);
+                    feed.appendChild(card);
+                }
+            });
+        }
+
+        function createPostCard(p) {
+            const isMe = p.author === currentUser;
+            const timeAgo = getTimeAgo(new Date(p.timestamp));
+            const colors = ['bg-rose-100 text-rose-600', 'bg-blue-100 text-blue-600', 'bg-emerald-100 text-emerald-600', 'bg-amber-100 text-amber-600', 'bg-violet-100 text-violet-600'];
+            const colorClass = isMe ? 'bg-gray-900 text-white' : colors[(p.author?.length || 0) % colors.length];
+            const authorInitial = (p.author && p.author.length > 0) ? p.author.charAt(0).toUpperCase() : '?';
+            const likesCount = p.likes || 0;
+            const userLiked = p.likedByMe || false;
+            const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
+            const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
+
+            const card = document.createElement('div');
+            card.id = `post-${p.id}`;
+            card.dataset.postId = p.id;
+            card.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100/50 hover:shadow-md transition-all duration-300 animate-slide-up";
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl ${colorClass} flex items-center justify-center text-sm font-bold shadow-sm">
+                            ${authorInitial}
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold text-gray-900 leading-tight">
+                                ${escapeHtml(p.author || 'Anónimo')}
+                                ${isMe ? '<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded ml-1 font-normal">Tú</span>' : ''}
+                            </span>
+                            <span class="text-[11px] text-gray-400 font-medium">${timeAgo}</span>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 flex items-center gap-1">
+                        <i class="fas fa-map-pin text-[10px] text-gray-400"></i>
+                        <span class="text-xs font-semibold text-gray-600 distance-label">${formatDistance(p.distance)}</span>
+                    </div>
+                </div>
+                
+                <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line break-words">${escapeHtml(p.text)}</p>
+                
+                <div class="flex items-center justify-between pt-3 border-t border-gray-50">
+                    <div class="flex gap-4">
+                        <button class="btn-like group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${escapeHtml(p.id)}')">
+                            <i class="${likeIconClass} fa-heart text-lg group-hover:scale-110 transition-transform"></i>
+                            <span class="likes-count text-xs font-bold">${likesCount}</span>
+                        </button>
+                        <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${escapeHtml(p.id)}')">
+                            <i class="far fa-comment-alt text-lg"></i>
+                            <span class="text-xs font-bold">Comentar</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+            return card;
         }
 
         async function publishPost() {
             const input = document.getElementById('post-input');
             const text = input.value.trim();
             if (!text || text.length > 280) {
-                alert("El mensaje no puede estar vacío ni superar los 280 caracteres.");
+                alert("Mensaje inválido (máx 280 chars)");
                 return;
             }
             if (!authToken) return;
@@ -374,7 +477,7 @@
 
             try {
                 if (!DEMO_MODE) {
-                    const loc = userLocation || { lat: 40.416, lng: -3.703 };
+                    if(!userLocation) throw new Error("Esperando GPS preciso...");
                     
                     const res = await fetch(`${WORKER_URL}/api/posts`, {
                         method: 'POST',
@@ -384,15 +487,15 @@
                         },
                         body: JSON.stringify({
                             text: text, 
-                            lat: loc.lat,
-                            lng: loc.lng
+                            lat: userLocation.lat,
+                            lng: userLocation.lng
                         })
                     });
                     if (!res.ok) throw new Error("Error publicando");
                 }
                 input.value = '';
                 toggleModal('modal-new-post', false);
-                lastFetchLocation = null; // Forzar recarga inmediata
+                lastFetchLocation = null; 
                 fetchPosts();
             } catch (error) {
                 alert(error.message);
@@ -406,23 +509,30 @@
             const icon = btn.querySelector('i');
             const countSpan = btn.querySelector('span');
             let currentCount = parseInt(countSpan.innerText) || 0;
-            
             const isLiked = icon.classList.contains('fas');
 
+            // Optimistic UI Update
             if (isLiked) {
-                icon.classList.remove('fas', 'text-rose-500');
-                icon.classList.add('far');
+                icon.className = "far fa-heart text-lg group-hover:scale-110 transition-transform";
                 btn.classList.remove('text-rose-500');
+                btn.classList.add('text-gray-400');
                 currentCount = Math.max(0, currentCount - 1);
             } else {
-                icon.classList.remove('far');
-                icon.classList.add('fas', 'text-rose-500');
+                icon.className = "fas fa-heart text-lg group-hover:scale-110 transition-transform text-rose-500";
+                btn.classList.remove('text-gray-400');
                 btn.classList.add('text-rose-500');
+                // Efecto pop
                 icon.classList.add('scale-125');
                 setTimeout(() => icon.classList.remove('scale-125'), 200);
                 currentCount++;
             }
             countSpan.innerText = currentCount;
+
+            const post = loadedPosts.find(p => p.id === postId);
+            if(post) {
+                post.likedByMe = !isLiked;
+                post.likes = currentCount;
+            }
 
             if (!DEMO_MODE) {
                 try {
@@ -434,9 +544,7 @@
                         },
                         body: JSON.stringify({ postId })
                     });
-                } catch(e) {
-                    console.error("Error like", e);
-                }
+                } catch(e) { console.error("Like failed", e); }
             }
         }
 
@@ -515,96 +623,6 @@
             }
         }
 
-        // Renderiza posts usando userLocation actual para recalcular distancias
-        function renderPosts(posts) {
-            const feed = document.getElementById('feed-container');
-            const countBadge = document.getElementById('count-badge');
-            
-            if(!feed) return;
-
-            // Filtramos en cliente por el rango actual del slider (por si cambió)
-            const filteredPosts = posts.filter(p => {
-                // Recalcular distancia con ubicación actual precisa
-                if (userLocation) {
-                    p.distance = getDist(userLocation.lat, userLocation.lng, p.lat, p.lng);
-                }
-                return p.distance <= currentRange;
-            });
-
-            feed.innerHTML = '';
-            if(countBadge) {
-                countBadge.innerText = filteredPosts.length;
-                countBadge.classList.remove('hidden');
-                if(filteredPosts.length === 0) countBadge.classList.add('hidden');
-            }
-
-            if (filteredPosts.length === 0) {
-                feed.innerHTML = `
-                    <div class="flex flex-col items-center justify-center py-20 text-center px-6">
-                        <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
-                            <i class="fas fa-wind text-3xl"></i>
-                        </div>
-                        <h3 class="text-gray-800 font-bold text-lg mb-1">Está muy tranquilo</h3>
-                        <p class="text-gray-400 text-sm max-w-xs mx-auto">Nadie ha escrito nada en este radio (${currentRange}m) todavía.</p>
-                    </div>`;
-                return;
-            }
-
-            filteredPosts.forEach(p => {
-                const isMe = p.author === currentUser;
-                const timeAgo = getTimeAgo(new Date(p.timestamp));
-                
-                const card = document.createElement('div');
-                card.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100/50 hover:shadow-md transition-all duration-300";
-                
-                const colors = ['bg-rose-100 text-rose-600', 'bg-blue-100 text-blue-600', 'bg-emerald-100 text-emerald-600', 'bg-amber-100 text-amber-600', 'bg-violet-100 text-violet-600'];
-                const colorClass = isMe ? 'bg-gray-900 text-white' : colors[(p.author?.length || 0) % colors.length];
-                const authorInitial = (p.author && p.author.length > 0) ? p.author.charAt(0).toUpperCase() : '?';
-                
-                const likesCount = p.likes || 0;
-                const userLiked = p.likedByMe || false;
-                const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
-                const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
-
-                card.innerHTML = `
-                    <div class="flex justify-between items-start mb-3">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-2xl ${colorClass} flex items-center justify-center text-sm font-bold shadow-sm">
-                                ${authorInitial}
-                            </div>
-                            <div class="flex flex-col">
-                                <span class="text-sm font-bold text-gray-900 leading-tight">
-                                    ${escapeHtml(p.author || 'Anónimo')}
-                                    ${isMe ? '<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded ml-1 font-normal">Tú</span>' : ''}
-                                </span>
-                                <span class="text-[11px] text-gray-400 font-medium">${timeAgo}</span>
-                            </div>
-                        </div>
-                        <div class="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 flex items-center gap-1">
-                            <i class="fas fa-map-pin text-[10px] text-gray-400"></i>
-                            <span class="text-xs font-semibold text-gray-600">${formatDistance(p.distance)}</span>
-                        </div>
-                    </div>
-                    
-                    <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line break-words">${escapeHtml(p.text)}</p>
-                    
-                    <div class="flex items-center justify-between pt-3 border-t border-gray-50">
-                        <div class="flex gap-4">
-                            <button class="group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${escapeHtml(p.id)}')">
-                                <i class="${likeIconClass} fa-heart text-lg group-hover:scale-110 transition-transform"></i>
-                                <span class="text-xs font-bold">${likesCount}</span>
-                            </button>
-                            <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${escapeHtml(p.id)}')">
-                                <i class="far fa-comment-alt text-lg"></i>
-                                <span class="text-xs font-bold">Comentar</span>
-                            </button>
-                        </div>
-                    </div>
-                `;
-                feed.appendChild(card);
-            });
-        }
-
         function updateRangeUI(val) {
             const el = document.getElementById('rangeValue');
             if(el) el.innerText = formatDistance(val);
@@ -631,13 +649,7 @@
 
         function escapeHtml(text) {
             if (!text) return "";
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
             return text.toString().replace(/[&<>"']/g, function(m) { return map[m]; });
         }
 
@@ -661,7 +673,6 @@
                 { id: '2', text: "¿Alguien para jugar pádel luego?", lat: uLoc.lat+0.001, lng: uLoc.lng, author: 'alex_sport', timestamp: new Date(Date.now() - 1800000), likes: 2, likedByMe: false },
                 { id: '3', text: "¡Acaban de abrir una cafetería buenísima en la plaza! ☕", lat: uLoc.lat-0.002, lng: uLoc.lng+0.001, author: 'coffee_lover', timestamp: new Date(Date.now() - 3600000), likes: 45, likedByMe: false }
             ];
-            
             return basePosts
                 .map(m => ({...m, distance: getDist(uLoc.lat, uLoc.lng, m.lat, m.lng)}))
                 .filter(m => m.distance <= range);
@@ -729,6 +740,13 @@
             background: #E5E7EB;
             border-radius: 2px;
         }
+
+        @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes scale-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
     </style>
 </head>
 <body class="text-gray-900 h-screen flex flex-col relative overflow-hidden">
@@ -761,11 +779,12 @@
         </div>
     </div>
 
-    <main class="flex-1 overflow-y-auto p-5 pb-24 relative z-10" id="feed-container">
+    <main class="flex-1 overflow-y-auto p-5 pb-32 relative z-10" id="feed-container">
     </main>
     
-    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none">
-        <div class="bg-gray-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs font-medium">
+    <!-- Status Flotante -->
+    <div class="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40 pointer-events-none">
+        <div class="bg-gray-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs font-medium border border-white/10">
             <div class="flex items-center gap-1.5">
                 <i id="status-icon" class="fas fa-circle-notch fa-spin text-violet-400"></i>
                 <span id="status-text">Iniciando</span>
@@ -776,10 +795,30 @@
         </div>
     </div>
 
-    <button id="fab-add" class="absolute bottom-6 right-6 bg-gray-900 text-white w-14 h-14 rounded-2xl shadow-xl shadow-gray-900/20 flex items-center justify-center text-xl hover:scale-105 hover:bg-black transition-all duration-300 z-40">
+    <!-- FAB CORREGIDO: Más arriba para evitar navbar móvil (bottom-24) -->
+    <button id="fab-add" class="fixed bottom-24 right-6 bg-gray-900 text-white w-14 h-14 rounded-2xl shadow-xl shadow-gray-900/30 flex items-center justify-center text-xl hover:scale-105 hover:bg-black transition-all duration-300 z-50">
         <i class="fas fa-plus"></i>
     </button>
 
+    <!-- OVERLAYS DE GPS -->
+    <div id="gps-loading-overlay" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center hidden">
+        <div class="w-16 h-16 bg-violet-50 text-violet-600 rounded-full flex items-center justify-center mb-4 animate-bounce">
+            <i class="fas fa-satellite-dish text-2xl"></i>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900">Esperando satélites...</h3>
+        <p class="text-sm text-gray-500 mt-2 text-center px-8">Necesitamos tu ubicación exacta para mostrarte los secretos de tu zona.</p>
+    </div>
+
+    <div id="gps-error-overlay" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center hidden">
+        <div class="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
+            <i class="fas fa-map-marker-slash text-2xl"></i>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900">Ubicación desactivada</h3>
+        <p class="text-sm text-gray-500 mt-2 text-center px-8 mb-6">Activa el GPS de tu dispositivo para usar Whispr.</p>
+        <button id="btn-retry-gps" class="bg-gray-900 text-white px-6 py-3 rounded-xl font-bold text-sm">Reintentar</button>
+    </div>
+
+    <!-- MODAL AUTH -->
     <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white items-center justify-center p-6">
         <div class="w-full max-w-sm animate-fade-in-up">
             <div class="text-center mb-10">
@@ -791,100 +830,56 @@
             </div>
             
             <input type="hidden" id="auth-mode" value="login">
-            
             <div class="space-y-4 mb-6">
                 <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off" maxlength="20">
                 <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña" maxlength="100">
             </div>
-
             <div id="auth-feedback" class="text-rose-500 text-sm font-medium text-center mb-4 hidden bg-rose-50 p-2 rounded-lg"></div>
-
-            <button id="auth-submit" class="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-black transition text-lg">
-                Entrar
-            </button>
-
+            <button id="auth-submit" class="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-black transition text-lg">Entrar</button>
             <div class="mt-8 text-center text-sm text-gray-500">
-                <span id="auth-toggle-text">
-                    ¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode('register')">Regístrate</button>
-                </span>
+                <span id="auth-toggle-text">¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode('register')">Regístrate</button></span>
             </div>
         </div>
     </div>
 
+    <!-- MODAL NEW POST -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
         <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 transform transition-all animate-slide-up">
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-900">Nuevo Whispr</h3>
-                <button id="btn-cancel-post" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition">
-                    <i class="fas fa-times"></i>
-                </button>
+                <button id="btn-cancel-post" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition"><i class="fas fa-times"></i></button>
             </div>
-            
             <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..." maxlength="280"></textarea>
-            
             <div class="flex justify-between items-center">
-                <div class="text-xs text-gray-400 font-medium flex gap-2">
-                    <span class="bg-gray-100 px-2 py-1 rounded">📍 Tu ubicación</span>
-                    <span class="bg-gray-100 px-2 py-1 rounded">🔒 Anónimo</span>
-                </div>
-                <button id="btn-publish" class="bg-violet-600 hover:bg-violet-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-violet-500/30 transition">
-                    Publicar
-                </button>
+                <div class="text-xs text-gray-400 font-medium flex gap-2"><span class="bg-gray-100 px-2 py-1 rounded">📍 Ubicación Real</span></div>
+                <button id="btn-publish" class="bg-violet-600 hover:bg-violet-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-violet-500/30 transition">Publicar</button>
             </div>
         </div>
     </div>
     
+    <!-- MODAL COMMENTS -->
     <div id="modal-comments" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
         <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 flex flex-col max-h-[80vh] animate-slide-up">
             <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
                 <h3 class="text-lg font-bold text-gray-900">Comentarios</h3>
-                <button id="btn-close-comments" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition">
-                    <i class="fas fa-times"></i>
-                </button>
+                <button id="btn-close-comments" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition"><i class="fas fa-times"></i></button>
             </div>
-            
-            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[200px]">
-            </div>
-
+            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[200px]"></div>
             <div class="flex gap-2">
                 <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario..." maxlength="140">
-                <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition">
-                    <i class="fas fa-paper-plane text-xs"></i>
-                </button>
+                <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition"><i class="fas fa-paper-plane text-xs"></i></button>
             </div>
         </div>
     </div>
 
+    <!-- MODAL MENU -->
     <div id="modal-menu" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm items-center justify-center p-6" onclick="if(event.target === this) toggleModal('modal-menu', false)">
         <div class="bg-white w-full max-w-xs rounded-3xl shadow-2xl p-6 text-center animate-scale-in">
-            <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold text-gray-700 border-4 border-white shadow-sm">
-                <span id="user-avatar-text-lg">?</span>
-            </div>
+            <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold text-gray-700 border-4 border-white shadow-sm"><span id="user-avatar-text-lg">?</span></div>
             <h3 id="user-name-display" class="font-bold text-lg text-gray-900 mb-6">@usuario</h3>
-            
-            <button id="btn-logout" class="w-full bg-rose-50 text-rose-600 font-bold py-3 rounded-xl hover:bg-rose-100 transition flex items-center justify-center gap-2">
-                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
-            </button>
+            <button id="btn-logout" class="w-full bg-rose-50 text-rose-600 font-bold py-3 rounded-xl hover:bg-rose-100 transition flex items-center justify-center gap-2"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</button>
         </div>
     </div>
-
-    <style>
-        @keyframes fade-in-up {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes slide-up {
-            from { transform: translateY(100%); }
-            to { transform: translateY(0); }
-        }
-        @keyframes scale-in {
-            from { opacity: 0; transform: scale(0.9); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        .animate-fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
-        .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-    </style>
 
 </body>
 </html>
