@@ -3,91 +3,133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <!-- CSP para seguridad -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev;">
+    <meta name="theme-color" content="#7c3aed">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob:;">
     
     <title>Whispr</title>
 
+    <!-- Librerías -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+    <!-- Configuración Tailwind -->
     <script>
-        // CONFIGURACIÓN
-        const DEMO_MODE = false; 
-        const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+                    colors: { brand: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed', 900: '#4c1d95' } },
+                    animation: { 'pop': 'pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)', 'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both' },
+                    keyframes: {
+                        pop: { '0%': { transform: 'scale(0.5)' }, '100%': { transform: 'scale(1)' } },
+                        shake: { '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' }, '20%, 80%': { transform: 'translate3d(2px, 0, 0)' }, '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' }, '40%, 60%': { transform: 'translate3d(4px, 0, 0)' } }
+                    }
+                }
+            }
+        }
+    </script>
 
-        let userLocation = null;       
-        let lastFetchLocation = null;  
-        let currentRange = 250; 
-        let authToken = null;
-        let currentUser = null;
-        let currentPostId = null;
-        let loadedPosts = [];          
-        let geoWatchId = null;         
+    <script>
+        // --- CONFIGURACIÓN ---
+        const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
+        const CATEGORIES = {
+            gossip: { label: 'Confidencial', icon: 'fa-user-secret', color: 'bg-purple-100 text-purple-600' },
+            humor: { label: 'Humor', icon: 'fa-grin-squint', color: 'bg-yellow-100 text-yellow-600' },
+            love: { label: 'Crush', icon: 'fa-heart', color: 'bg-rose-100 text-rose-600' },
+            idea: { label: 'Pensamiento', icon: 'fa-lightbulb', color: 'bg-blue-100 text-blue-600' },
+            promo: { label: 'Plan/Promo', icon: 'fa-bullhorn', color: 'bg-green-100 text-green-600' }
+        };
+
+        // Estado Global
+        let state = {
+            userLocation: null,
+            lastFetchLocation: null,
+            range: 500,
+            authToken: null,
+            currentUser: null,
+            pseudonym: null,
+            blockedUsers: JSON.parse(localStorage.getItem('whispr_blocked') || '[]'),
+            loadedPosts: [],
+            activeFilter: 'all',
+            geoWatchId: null
+        };
+
+        // Audio FX
+        const soundPop = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU...'); // (Placeholder corto para evitar peso excesivo, usar librería real o URL)
+        
+        function vibrate(pattern = 50) {
+            if (navigator.vibrate) navigator.vibrate(pattern);
+        }
 
         document.addEventListener('DOMContentLoaded', () => {
-            try {
-                checkSession();
-                
-                const safeAddListener = (id, event, handler) => {
-                    const el = document.getElementById(id);
-                    if (el) el.addEventListener(event, handler);
-                };
-
-                safeAddListener('btn-logout', 'click', logout);
-                
-                const rangeSlider = document.getElementById('rangeSlider');
-                if(rangeSlider) {
-                    rangeSlider.addEventListener('change', (e) => { 
-                        currentRange = parseInt(e.target.value);
-                        updateRangeUI(currentRange);
-                        lastFetchLocation = null; 
-                        fetchPosts(); 
-                    });
-                    rangeSlider.addEventListener('input', (e) => {
-                        updateRangeUI(e.target.value);
-                        currentRange = parseInt(e.target.value);
-                        renderPostsSmart(loadedPosts); 
-                    });
-                }
-
-                safeAddListener('btn-publish', 'click', publishPost);
-                safeAddListener('fab-add', 'click', () => toggleModal('modal-new-post', true));
-                safeAddListener('btn-cancel-post', 'click', () => toggleModal('modal-new-post', false));
-                
-                safeAddListener('auth-submit', 'click', handleAuthSubmit);
-                safeAddListener('btn-refresh', 'click', () => { lastFetchLocation = null; fetchPosts(); });
-                safeAddListener('btn-retry-gps', 'click', startLiveTracking); 
-
-                safeAddListener('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
-                safeAddListener('btn-send-comment', 'click', publishComment);
-
-                // Avatar sync
-                const observer = new MutationObserver(() => {
-                    const sm = document.getElementById('user-avatar-text');
-                    const lg = document.getElementById('user-avatar-text-lg');
-                    if(sm && lg && sm.innerText !== lg.innerText) {
-                        lg.innerText = sm.innerText;
-                    }
-                });
-                observer.observe(document.body, {childList: true, subtree: true});
-
-            } catch (err) {
-                console.error(err);
-            }
+            checkSession();
+            initListeners();
+            requestNotificationPermission();
         });
 
-        function checkSession() {
-            let token, username;
-            try {
-                token = localStorage.getItem('whispr_token');
-                username = localStorage.getItem('whispr_username');
-            } catch (e) {}
+        function initListeners() {
+            // Navegación y UI
+            on('btn-logout', 'click', logout);
+            on('btn-profile', 'click', openProfile);
+            on('btn-refresh', 'click', () => { state.lastFetchLocation = null; fetchPosts(); vibrate(20); });
+            
+            // Slider
+            const slider = document.getElementById('rangeSlider');
+            if(slider) {
+                slider.addEventListener('input', (e) => {
+                    state.range = parseInt(e.target.value);
+                    document.getElementById('rangeValue').innerText = formatDistance(state.range);
+                    renderPostsSmart(state.loadedPosts);
+                });
+                slider.addEventListener('change', fetchPosts);
+            }
 
-            if (token && username) {
-                authToken = token;
-                currentUser = username;
+            // Crear Post
+            on('fab-add', 'click', () => toggleModal('modal-new-post', true));
+            on('btn-close-post', 'click', () => toggleModal('modal-new-post', false));
+            on('btn-publish', 'click', publishPost);
+            
+            // Auth
+            on('auth-submit', 'click', handleAuthSubmit);
+            
+            // Filtros
+            document.querySelectorAll('.filter-chip').forEach(chip => {
+                chip.addEventListener('click', (e) => {
+                    document.querySelectorAll('.filter-chip').forEach(c => c.classList.replace('bg-brand-600', 'bg-white'));
+                    document.querySelectorAll('.filter-chip').forEach(c => c.classList.replace('text-white', 'text-gray-600'));
+                    e.target.classList.add('bg-brand-600', 'text-white');
+                    state.activeFilter = e.target.dataset.filter;
+                    renderPostsSmart(state.loadedPosts);
+                    vibrate(10);
+                });
+            });
+
+            // Categoría en Nuevo Post
+            document.querySelectorAll('.cat-option').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    document.querySelectorAll('.cat-option').forEach(c => c.classList.remove('ring-2', 'ring-brand-500', 'bg-brand-50'));
+                    e.currentTarget.classList.add('ring-2', 'ring-brand-500', 'bg-brand-50');
+                    document.getElementById('post-category').value = e.currentTarget.dataset.cat;
+                });
+            });
+        }
+
+        function on(id, evt, handler) {
+            const el = document.getElementById(id);
+            if(el) el.addEventListener(evt, handler);
+        }
+
+        // --- AUTH ---
+        function checkSession() {
+            try {
+                state.authToken = localStorage.getItem('whispr_token');
+                state.currentUser = localStorage.getItem('whispr_username');
+                state.pseudonym = localStorage.getItem('whispr_pseudonym') || state.currentUser;
+            } catch(e){}
+
+            if (state.authToken && state.currentUser) {
                 initApp();
             } else {
                 toggleModal('modal-auth', true);
@@ -95,789 +137,505 @@
         }
 
         function initApp() {
-            try {
-                if (currentUser) {
-                    const initial = currentUser.charAt(0).toUpperCase();
-                    const avatarEl = document.getElementById('user-avatar-text');
-                    const nameEl = document.getElementById('user-name-display');
-                    if(avatarEl) avatarEl.innerText = initial;
-                    if(nameEl) nameEl.innerText = `@${currentUser}`;
-                }
-                toggleModal('modal-auth', false);
-                startLiveTracking();
-            } catch (e) {}
+            updateProfileUI();
+            toggleModal('modal-auth', false);
+            startLiveTracking();
         }
 
-        // --- AUTH ---
         async function handleAuthSubmit() {
-            const mode = document.getElementById('auth-mode').value; 
             const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
             const passIn = document.getElementById('auth-password').value;
-            const feedback = document.getElementById('auth-feedback');
             const btn = document.getElementById('auth-submit');
-
-            if (!userIn || !passIn || userIn.length > 20 || passIn.length > 100) {
-                showError(feedback, "Datos inválidos o demasiado largos");
-                return;
-            }
-
+            
+            if(!userIn || !passIn) return alert("Faltan datos");
+            
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            feedback.classList.add('hidden');
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
 
             try {
-                if (DEMO_MODE) {
-                    await new Promise(r => setTimeout(r, 800));
-                    loginSuccess("usuario_demo", "fake-token");
-                    return;
-                }
-
-                const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-                const response = await fetch(`${WORKER_URL}${endpoint}`, {
+                const mode = document.getElementById('auth-mode').value;
+                const res = await fetch(`${WORKER_URL}/api/auth/${mode}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: userIn, password: passIn })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: userIn, password: passIn})
                 });
+                const data = await res.json();
+                if(!res.ok) throw new Error(data.error);
 
-                const data = await response.json();
-
-                if (!response.ok) throw new Error(data.error || "Error de autenticación");
-
-                loginSuccess(data.username, data.token);
-
-            } catch (error) {
-                showError(feedback, error.message);
+                state.authToken = data.token;
+                state.currentUser = data.username;
+                state.pseudonym = data.username; // Default
+                localStorage.setItem('whispr_token', data.token);
+                localStorage.setItem('whispr_username', data.username);
+                
+                initApp();
+            } catch(e) {
+                alert(e.message);
+            } finally {
                 btn.disabled = false;
-                btn.innerText = mode === 'login' ? 'Entrar' : 'Registrarse';
+                btn.innerText = "Entrar";
             }
-        }
-
-        function loginSuccess(username, token) {
-            authToken = token;
-            currentUser = username;
-            try {
-                localStorage.setItem('whispr_token', token);
-                localStorage.setItem('whispr_username', username);
-            } catch(e) {}
-            
-            const btn = document.getElementById('auth-submit');
-            if(btn) {
-                btn.innerText = '¡Listo!';
-                btn.classList.replace('bg-gray-900', 'bg-green-500');
-            }
-            
-            setTimeout(() => {
-                try {
-                    initApp();
-                    const userInput = document.getElementById('auth-username');
-                    const passInput = document.getElementById('auth-password');
-                    if(userInput) userInput.value = '';
-                    if(passInput) passInput.value = '';
-                    
-                    if(btn) {
-                        btn.disabled = false;
-                        btn.classList.replace('bg-green-500', 'bg-gray-900');
-                        btn.innerText = 'Entrar';
-                    }
-                } catch(e) {}
-            }, 800);
         }
 
         function logout() {
-            try {
-                localStorage.removeItem('whispr_token');
-                localStorage.removeItem('whispr_username');
-                if (geoWatchId) navigator.geolocation.clearWatch(geoWatchId);
-            } catch(e){}
-            authToken = null;
-            currentUser = null;
+            localStorage.clear();
             location.reload();
         }
 
-        function toggleAuthMode(mode) {
-            const title = document.getElementById('auth-title');
-            const btn = document.getElementById('auth-submit');
-            const toggleText = document.getElementById('auth-toggle-text');
-            const modeInput = document.getElementById('auth-mode');
-            const feedback = document.getElementById('auth-feedback');
-            
-            if(feedback) feedback.classList.add('hidden');
-
-            if (mode === 'register') {
-                if(title) title.innerText = "Únete a Whispr";
-                if(btn) btn.innerText = "Crear Cuenta";
-                if(toggleText) toggleText.innerHTML = '¿Ya tienes cuenta? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode(\'login\')">Inicia sesión</button>';
-                if(modeInput) modeInput.value = 'register';
-            } else {
-                if(title) title.innerText = "Hola de nuevo";
-                if(btn) btn.innerText = "Entrar";
-                if(toggleText) toggleText.innerHTML = '¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode(\'register\')">Regístrate</button>';
-                if(modeInput) modeInput.value = 'login';
-            }
-        }
-
-        // --- GPS ALTA PRECISIÓN ---
-        
+        // --- GEO ---
         function startLiveTracking() {
-            const statusText = document.getElementById('status-text');
-            const statusIcon = document.getElementById('status-icon');
-            const errorOverlay = document.getElementById('gps-error-overlay');
-            const loadingOverlay = document.getElementById('gps-loading-overlay');
+            if(!navigator.geolocation) return alert("GPS requerido");
             
-            if (!navigator.geolocation) {
-                if(errorOverlay) errorOverlay.classList.remove('hidden');
-                return;
-            }
-
-            // Mostrar "Esperando GPS"
-            if(loadingOverlay) loadingOverlay.classList.remove('hidden');
-            if(errorOverlay) errorOverlay.classList.add('hidden');
-
-            if(statusText) statusText.innerText = 'Conectando satélites...';
-            if(statusIcon) statusIcon.className = "fas fa-satellite-dish fa-spin text-violet-500";
-
-            geoWatchId = navigator.geolocation.watchPosition(
-                (position) => {
-                    // ÉXITO: Tenemos ubicación real
-                    const newLat = position.coords.latitude;
-                    const newLng = position.coords.longitude;
-                    
-                    userLocation = { lat: newLat, lng: newLng };
-
-                    // Ocultar overlays
-                    if(loadingOverlay) loadingOverlay.classList.add('hidden');
-                    if(errorOverlay) errorOverlay.classList.add('hidden');
-
-                    if(statusText) statusText.innerText = 'Ubicación Real';
-                    if(statusIcon) statusIcon.className = "fas fa-crosshairs text-green-500";
-
-                    handleMovement();
-                },
-                (error) => {
-                    console.warn("GPS Error:", error.message);
-                    // ERROR: No hay ubicación. Mostramos pantalla de bloqueo.
-                    // NO usamos Madrid. El usuario quiere ubicación real.
-                    if(loadingOverlay) loadingOverlay.classList.add('hidden');
-                    if(errorOverlay) errorOverlay.classList.remove('hidden');
-                },
-                { 
-                    enableHighAccuracy: true, // Forzar GPS real
-                    maximumAge: 0,            // No cache
-                    timeout: 20000            // Esperar hasta 20s
-                }
-            );
-        }
-
-        function handleMovement() {
-            if (!userLocation) return;
-
-            if (!lastFetchLocation) {
-                fetchPosts();
-                return;
-            }
-
-            const dist = getDist(
-                userLocation.lat, userLocation.lng,
-                lastFetchLocation.lat, lastFetchLocation.lng
-            );
-
-            // Refresco inteligente (> 8 metros)
-            if (dist > 8) {
-                fetchPosts();
-            } else {
-                // Movimiento menor: Solo actualizar contadores visuales (sin parpadeo)
-                renderPostsSmart(loadedPosts); 
-            }
-        }
-
-        async function fetchPosts() {
-            if (!authToken || !userLocation) return;
+            document.getElementById('gps-loading').classList.remove('hidden');
             
-            const btnRefresh = document.getElementById('btn-refresh');
-            if(btnRefresh) btnRefresh.classList.add('animate-spin');
-
-            try {
-                let posts = [];
-                if (DEMO_MODE) {
-                    await new Promise(r => setTimeout(r, 800)); 
-                    posts = mockServerResponse(userLocation, currentRange);
-                } else {
-                    const response = await fetch(`${WORKER_URL}/api/posts?lat=${userLocation.lat}&lng=${userLocation.lng}&range=${currentRange}`, {
-                        headers: { 'Authorization': `Bearer ${authToken}` }
-                    });
+            state.geoWatchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    document.getElementById('gps-loading').classList.add('hidden');
+                    document.getElementById('status-text').innerText = "En línea";
                     
-                    if (!response.ok) {
-                        if (response.status === 401) { logout(); return; }
-                        throw new Error("Error de red");
+                    // Lógica de movimiento (8m)
+                    if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 8) {
+                        fetchPosts();
+                    } else {
+                        renderPostsSmart(state.loadedPosts);
                     }
-                    posts = await response.json();
-                }
+                },
+                (err) => {
+                    document.getElementById('status-text').innerText = "GPS Perdido";
+                },
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+            );
+        }
 
-                // Actualizamos cache solo si hay datos o si fue una respuesta válida
-                loadedPosts = posts;
-                lastFetchLocation = { ...userLocation }; 
+        // --- DATA ---
+        async function fetchPosts() {
+            if(!state.authToken || !state.userLocation) return;
+            
+            document.getElementById('btn-refresh').classList.add('animate-spin');
+            
+            try {
+                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.range}`, {
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                if(res.status === 401) return logout();
                 
-                renderPostsSmart(loadedPosts);
+                const posts = await res.json();
+                state.loadedPosts = posts;
+                state.lastFetchLocation = {...state.userLocation};
+                
+                // Notificación si hay nuevos mensajes cerca (simulado con comparación de longitud)
+                if(posts.length > 0 && document.hidden) sendNotification(`Hay ${posts.length} secretos cerca de ti`);
 
-            } catch (error) {
-                console.error(error);
+                renderPostsSmart(posts);
+            } catch(e) {
+                console.error(e);
             } finally {
-                if(btnRefresh) btnRefresh.classList.remove('animate-spin');
+                document.getElementById('btn-refresh').classList.remove('animate-spin');
             }
         }
 
-        // --- RENDERIZADO INTELIGENTE (Sin Parpadeo) ---
         function renderPostsSmart(posts) {
             const feed = document.getElementById('feed-container');
-            const countBadge = document.getElementById('count-badge');
-            
             if(!feed) return;
 
-            // 1. Filtrar
-            const filteredPosts = posts.filter(p => {
-                if (userLocation) {
-                    p.distance = getDist(userLocation.lat, userLocation.lng, p.lat, p.lng);
-                }
-                return p.distance <= currentRange;
+            // 1. Filtrar (Rango, Categoría, Bloqueados)
+            let filtered = posts.filter(p => {
+                p.distance = getDist(state.userLocation, p);
+                if(p.distance > state.range) return false;
+                if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
+                if(state.blockedUsers.includes(p.authorId)) return false;
+                return true;
             });
 
-            // Actualizar badge
-            if(countBadge) {
-                countBadge.innerText = filteredPosts.length;
-                countBadge.classList.remove('hidden');
-                if(filteredPosts.length === 0) countBadge.classList.add('hidden');
-            }
+            // 2. Ordenar por distancia (default)
+            filtered.sort((a,b) => a.distance - b.distance);
 
-            // 2. Si vacío, mostrar mensaje
-            if (filteredPosts.length === 0) {
-                // Solo si está vacío y no hay mensaje de vacío ya, lo ponemos.
-                // Usamos un ID especial para no borrarlo accidentalmente
-                if (!document.getElementById('empty-state')) {
-                    feed.innerHTML = `
-                        <div id="empty-state" class="flex flex-col items-center justify-center py-20 text-center px-6 fade-in">
-                            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
-                                <i class="fas fa-wind text-3xl"></i>
-                            </div>
-                            <h3 class="text-gray-800 font-bold text-lg mb-1">Nada cerca</h3>
-                            <p class="text-gray-400 text-sm max-w-xs mx-auto">En este radio de ${currentRange}m no hay secretos.</p>
-                        </div>`;
+            document.getElementById('count-badge').innerText = filtered.length;
+
+            if(filtered.length === 0) {
+                if(!document.getElementById('empty-msg')) {
+                    feed.innerHTML = `<div id="empty-msg" class="text-center py-20 text-gray-400 animate-pop"><i class="fas fa-wind text-4xl mb-3"></i><p>Nada por aquí...</p></div>`;
                 }
                 return;
             }
-
-            // Si hay posts, quitar el mensaje de vacío si existe
-            const emptyState = document.getElementById('empty-state');
-            if (emptyState) emptyState.remove();
-
-            // 3. Diffing: Marcar todos como no vistos
-            const currentIds = new Set(filteredPosts.map(p => p.id));
             
-            // a) Eliminar los que ya no están (salieron del rango)
-            Array.from(feed.children).forEach(child => {
-                if (child.dataset.postId && !currentIds.has(child.dataset.postId)) {
-                    child.remove();
-                }
+            // Limpiar mensaje vacío
+            const empty = document.getElementById('empty-msg');
+            if(empty) empty.remove();
+
+            // 3. Diffing simple
+            const ids = new Set(filtered.map(p => p.id));
+            Array.from(feed.children).forEach(c => {
+                if(c.dataset.id && !ids.has(c.dataset.id)) c.remove();
             });
 
-            // b) Crear o Actualizar
-            filteredPosts.forEach(p => {
-                const existingCard = document.getElementById(`post-${p.id}`);
-                
-                if (existingCard) {
-                    // UPDATE: Solo cambiamos el texto de distancia (Evita parpadeo)
-                    const distLabel = existingCard.querySelector('.distance-label');
-                    if (distLabel) distLabel.innerText = formatDistance(p.distance);
-                    
-                    const likesLabel = existingCard.querySelector('.likes-count');
-                    if (likesLabel) likesLabel.innerText = p.likes || 0;
-                    
-                    const likeBtn = existingCard.querySelector('.btn-like i');
-                    if (likeBtn) {
-                         if(p.likedByMe && likeBtn.classList.contains('far')) {
-                             likeBtn.className = "fas fa-heart text-lg group-hover:scale-110 transition-transform text-rose-500";
-                         } else if(!p.likedByMe && likeBtn.classList.contains('fas')) {
-                             likeBtn.className = "far fa-heart text-lg group-hover:scale-110 transition-transform";
-                         }
-                    }
-
+            filtered.forEach(p => {
+                let card = document.getElementById(`post-${p.id}`);
+                if(card) {
+                    updateCard(card, p);
                 } else {
-                    // CREATE: Insertar nuevo
-                    const card = createPostCard(p);
+                    card = createCard(p);
                     feed.appendChild(card);
                 }
             });
         }
 
-        function createPostCard(p) {
-            const isMe = p.author === currentUser;
-            const timeAgo = getTimeAgo(new Date(p.timestamp));
-            const colors = ['bg-rose-100 text-rose-600', 'bg-blue-100 text-blue-600', 'bg-emerald-100 text-emerald-600', 'bg-amber-100 text-amber-600', 'bg-violet-100 text-violet-600'];
-            const colorClass = isMe ? 'bg-gray-900 text-white' : colors[(p.author?.length || 0) % colors.length];
-            const authorInitial = (p.author && p.author.length > 0) ? p.author.charAt(0).toUpperCase() : '?';
-            const likesCount = p.likes || 0;
-            const userLiked = p.likedByMe || false;
-            const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
-            const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
+        function createCard(p) {
+            const div = document.createElement('div');
+            div.id = `post-${p.id}`;
+            div.dataset.id = p.id;
+            div.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100 animate-pop relative overflow-hidden group";
+            
+            const cat = CATEGORIES[p.category] || CATEGORIES['gossip'];
+            const isMe = p.author === state.currentUser;
+            const popular = (p.reactions?.fire?.length || 0) > 5; // Lógica medalla
 
-            const card = document.createElement('div');
-            card.id = `post-${p.id}`;
-            card.dataset.postId = p.id;
-            card.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100/50 hover:shadow-md transition-all duration-300 animate-slide-up";
-
-            card.innerHTML = `
+            div.innerHTML = `
                 <div class="flex justify-between items-start mb-3">
                     <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-2xl ${colorClass} flex items-center justify-center text-sm font-bold shadow-sm">
-                            ${authorInitial}
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-lg font-bold text-gray-500">
+                            ${p.pseudonym ? p.pseudonym[0].toUpperCase() : '?'}
                         </div>
-                        <div class="flex flex-col">
-                            <span class="text-sm font-bold text-gray-900 leading-tight">
-                                ${escapeHtml(p.author || 'Anónimo')}
-                                ${isMe ? '<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded ml-1 font-normal">Tú</span>' : ''}
-                            </span>
-                            <span class="text-[11px] text-gray-400 font-medium">${timeAgo}</span>
+                        <div>
+                            <div class="flex items-center gap-1">
+                                <span class="font-bold text-gray-900 text-sm">${escapeHtml(p.pseudonym || 'Anónimo')}</span>
+                                ${popular ? '<i class="fas fa-medal text-yellow-500" title="Popular"></i>' : ''}
+                            </div>
+                            <div class="text-xs text-gray-400 flex items-center gap-2">
+                                <span>${getTimeAgo(p.timestamp)}</span>
+                                <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${cat.color}">${cat.label}</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 flex items-center gap-1">
-                        <i class="fas fa-map-pin text-[10px] text-gray-400"></i>
-                        <span class="text-xs font-semibold text-gray-600 distance-label">${formatDistance(p.distance)}</span>
+                    <div class="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-1 rounded-lg dist-label">
+                        ${formatDistance(p.distance)}
                     </div>
                 </div>
-                
-                <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line break-words">${escapeHtml(p.text)}</p>
-                
-                <div class="flex items-center justify-between pt-3 border-t border-gray-50">
-                    <div class="flex gap-4">
-                        <button class="btn-like group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${escapeHtml(p.id)}')">
-                            <i class="${likeIconClass} fa-heart text-lg group-hover:scale-110 transition-transform"></i>
-                            <span class="likes-count text-xs font-bold">${likesCount}</span>
-                        </button>
-                        <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${escapeHtml(p.id)}')">
-                            <i class="far fa-comment-alt text-lg"></i>
-                            <span class="text-xs font-bold">Comentar</span>
-                        </button>
+
+                <p class="text-gray-800 text-[15px] leading-relaxed mb-4 break-words post-text font-medium">${escapeHtml(p.text)}</p>
+
+                <div class="flex items-center justify-between border-t border-gray-50 pt-3">
+                    <div class="flex gap-1">
+                        ${renderReactionBtn(p, 'like', '👍')}
+                        ${renderReactionBtn(p, 'dislike', '👎')}
+                        ${renderReactionBtn(p, 'fire', '🔥')}
+                    </div>
+                    
+                    <div class="flex gap-3 text-gray-400">
+                        <button onclick="sharePost('${p.id}')" class="hover:text-brand-600 transition"><i class="fas fa-share-alt"></i></button>
+                        <button onclick="showOptions('${p.id}', '${p.author}')" class="hover:text-gray-900"><i class="fas fa-ellipsis-h"></i></button>
                     </div>
                 </div>
             `;
-            return card;
+            return div;
         }
 
-        async function publishPost() {
-            const input = document.getElementById('post-input');
-            const text = input.value.trim();
-            if (!text || text.length > 280) {
-                alert("Mensaje inválido (máx 280 chars)");
-                return;
-            }
-            if (!authToken) return;
-
-            const btn = document.getElementById('btn-publish');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-            try {
-                if (!DEMO_MODE) {
-                    if(!userLocation) throw new Error("Esperando GPS preciso...");
-                    
-                    const res = await fetch(`${WORKER_URL}/api/posts`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${authToken}`
-                        },
-                        body: JSON.stringify({
-                            text: text, 
-                            lat: userLocation.lat,
-                            lng: userLocation.lng
-                        })
-                    });
-                    if (!res.ok) throw new Error("Error publicando");
-                }
-                input.value = '';
-                toggleModal('modal-new-post', false);
-                lastFetchLocation = null; 
-                fetchPosts();
-            } catch (error) {
-                alert(error.message);
-            } finally {
-                btn.disabled = false;
-                btn.innerText = 'Publicar';
-            }
+        function renderReactionBtn(p, type, emoji) {
+            const count = (p.reactions && p.reactions[type] ? p.reactions[type].length : 0);
+            const active = (p.reactions && p.reactions[type] && p.reactions[type].includes(state.currentUser));
+            return `
+                <button onclick="react('${p.id}', '${type}')" class="flex items-center gap-1 px-2 py-1 rounded-full transition hover:bg-gray-100 ${active ? 'bg-brand-50 border border-brand-200 scale-105' : ''}">
+                    <span class="text-lg filter ${active ? '' : 'grayscale opacity-60'}">${emoji}</span>
+                    <span class="text-xs font-bold text-gray-600 count-${type}">${count > 0 ? count : ''}</span>
+                </button>
+            `;
         }
 
-        async function toggleLike(btn, postId) {
-            const icon = btn.querySelector('i');
-            const countSpan = btn.querySelector('span');
-            let currentCount = parseInt(countSpan.innerText) || 0;
-            const isLiked = icon.classList.contains('fas');
-
-            // Optimistic UI Update
-            if (isLiked) {
-                icon.className = "far fa-heart text-lg group-hover:scale-110 transition-transform";
-                btn.classList.remove('text-rose-500');
-                btn.classList.add('text-gray-400');
-                currentCount = Math.max(0, currentCount - 1);
-            } else {
-                icon.className = "fas fa-heart text-lg group-hover:scale-110 transition-transform text-rose-500";
-                btn.classList.remove('text-gray-400');
-                btn.classList.add('text-rose-500');
-                // Efecto pop
-                icon.classList.add('scale-125');
-                setTimeout(() => icon.classList.remove('scale-125'), 200);
-                currentCount++;
-            }
-            countSpan.innerText = currentCount;
-
-            const post = loadedPosts.find(p => p.id === postId);
-            if(post) {
-                post.likedByMe = !isLiked;
-                post.likes = currentCount;
-            }
-
-            if (!DEMO_MODE) {
-                try {
-                    await fetch(`${WORKER_URL}/api/posts/like`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${authToken}`
-                        },
-                        body: JSON.stringify({ postId })
-                    });
-                } catch(e) { console.error("Like failed", e); }
-            }
-        }
-
-        async function openComments(postId) {
-            currentPostId = postId;
-            toggleModal('modal-comments', true);
-            const container = document.getElementById('comments-list');
-            container.innerHTML = '<div class="text-center py-4 text-gray-400"><i class="fas fa-circle-notch fa-spin"></i></div>';
-
-            try {
-                let comments = [];
-                if(DEMO_MODE) {
-                     await new Promise(r => setTimeout(r, 500));
-                     comments = [{author: 'demo_user', text: '¡Qué interesante!', timestamp: new Date()}];
-                } else {
-                    const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
-                        headers: { 'Authorization': `Bearer ${authToken}` }
-                    });
-                    if(res.ok) comments = await res.json();
-                }
-                renderComments(comments);
-            } catch(e) {
-                container.innerHTML = '<div class="text-center py-4 text-gray-400">Error cargando comentarios</div>';
-            }
-        }
-
-        function renderComments(comments) {
-            const container = document.getElementById('comments-list');
-            container.innerHTML = '';
-            
-            if(comments.length === 0) {
-                container.innerHTML = '<div class="text-center py-8 text-gray-400 text-sm">Sé el primero en comentar</div>';
-                return;
-            }
-
-            comments.forEach(c => {
-                const el = document.createElement('div');
-                el.className = "mb-4 border-b border-gray-50 pb-2 last:border-0";
-                const time = getTimeAgo(new Date(c.timestamp));
-                el.innerHTML = `
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="font-bold text-xs text-gray-900">${escapeHtml(c.author)}</span>
-                        <span class="text-[10px] text-gray-400">${time}</span>
-                    </div>
-                    <p class="text-sm text-gray-700 break-words">${escapeHtml(c.text)}</p>
-                `;
-                container.appendChild(el);
+        function updateCard(card, p) {
+            // Actualizar distancia
+            card.querySelector('.dist-label').innerText = formatDistance(p.distance);
+            // Actualizar contadores reacciones
+            ['like', 'dislike', 'fire'].forEach(type => {
+                const count = p.reactions?.[type]?.length || 0;
+                const span = card.querySelector(`.count-${type}`);
+                if(span) span.innerText = count > 0 ? count : '';
             });
         }
 
-        async function publishComment() {
-            const input = document.getElementById('comment-input');
-            const text = input.value.trim();
-            if(!text || text.length > 140 || !currentPostId) return;
-
-            const btn = document.getElementById('btn-send-comment');
-            btn.disabled = true;
-
+        async function react(postId, type) {
+            vibrate(30);
+            // Optimistic update (complejo de implementar en DOM raw, mejor esperar respuesta rápida o usar frameworks reactivos)
+            // Aquí haremos la llamada directa
             try {
-                if(!DEMO_MODE) {
-                    await fetch(`${WORKER_URL}/api/posts/${currentPostId}/comments`, {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${authToken}`
-                        },
-                        body: JSON.stringify({ text })
-                    });
-                }
-                input.value = '';
-                openComments(currentPostId);
+                await fetch(`${WORKER_URL}/api/posts/react`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ postId, type })
+                });
+                // Recargar en background silencioso
+                fetchPosts();
+            } catch(e) {}
+        }
+
+        async function publishPost() {
+            const text = document.getElementById('post-input').value.trim();
+            const cat = document.getElementById('post-category').value;
+            const duration = document.getElementById('post-duration').value; // hours
+
+            if(!text || text.length > 280) return alert("Mensaje inválido");
+
+            const btn = document.getElementById('btn-publish');
+            btn.disabled = true;
+            
+            try {
+                await fetch(`${WORKER_URL}/api/posts`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text, 
+                        category: cat,
+                        lat: state.userLocation.lat, 
+                        lng: state.userLocation.lng,
+                        pseudonym: state.pseudonym,
+                        expiresIn: parseInt(duration)
+                    })
+                });
+                toggleModal('modal-new-post', false);
+                document.getElementById('post-input').value = '';
+                state.lastFetchLocation = null;
+                fetchPosts();
+                vibrate(100);
             } catch(e) {
-                alert("Error enviando comentario");
+                alert(e.message);
             } finally {
                 btn.disabled = false;
             }
         }
 
-        function updateRangeUI(val) {
-            const el = document.getElementById('rangeValue');
-            if(el) el.innerText = formatDistance(val);
+        // --- EXTRAS ---
+        function openProfile() {
+            // Calcular stats locales
+            const myPosts = state.loadedPosts.filter(p => p.author === state.currentUser).length;
+            let totalReactions = 0;
+            state.loadedPosts.filter(p => p.author === state.currentUser).forEach(p => {
+                if(p.reactions) totalReactions += (p.reactions.like?.length||0) + (p.reactions.dislike?.length||0) + (p.reactions.fire?.length||0);
+            });
+
+            document.getElementById('prof-post-count').innerText = myPosts;
+            document.getElementById('prof-react-count').innerText = totalReactions;
+            document.getElementById('prof-pseudo').value = state.pseudonym;
+            
+            toggleModal('modal-profile', true);
         }
 
-        function toggleModal(id, show) {
-            const modal = document.getElementById(id);
-            if (!modal) return;
-            if (show) {
-                modal.classList.remove('hidden');
-                modal.classList.add('flex');
+        function saveProfile() {
+            const newPseudo = document.getElementById('prof-pseudo').value.trim();
+            if(newPseudo) {
+                state.pseudonym = newPseudo;
+                localStorage.setItem('whispr_pseudonym', newPseudo);
+            }
+            toggleModal('modal-profile', false);
+        }
+
+        async function sharePost(id) {
+            const card = document.getElementById(`post-${id}`);
+            if(!card) return;
+            
+            // Generar imagen con html2canvas
+            try {
+                const canvas = await html2canvas(card, { scale: 2, backgroundColor: '#ffffff' });
+                canvas.toBlob(blob => {
+                    const file = new File([blob], "whispr_share.png", { type: "image/png" });
+                    if(navigator.share) {
+                        navigator.share({ files: [file], title: 'Secreto en Whispr', text: 'Mira lo que han dicho cerca de mí...' });
+                    } else {
+                        alert("Tu navegador no soporta compartir imágenes nativamente.");
+                    }
+                });
+            } catch(e) { console.error(e); }
+        }
+
+        function showOptions(postId, authorId) {
+            if(confirm("¿Qué deseas hacer?\n\nAceptar: Reportar mensaje\nCancelar: Bloquear usuario")) {
+                // Reportar
+                fetch(`${WORKER_URL}/api/report`, { 
+                    method: 'POST', 
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
+                    body: JSON.stringify({ postId, reason: 'offensive' })
+                });
+                alert("Reporte enviado. Gracias por mantener la comunidad segura.");
             } else {
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
+                // Bloquear
+                if(confirm(`¿Bloquear a este usuario? No verás más sus mensajes.`)) {
+                    state.blockedUsers.push(authorId);
+                    localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
+                    renderPostsSmart(state.loadedPosts); // Re-render para ocultar
+                }
             }
         }
 
-        function showError(el, msg) {
-            if(el) {
-                el.innerText = msg;
-                el.classList.remove('hidden');
-            }
+        // --- UTILS ---
+        function toggleModal(id, show) {
+            const el = document.getElementById(id);
+            if(show) el.classList.remove('hidden');
+            else el.classList.add('hidden');
         }
 
-        function escapeHtml(text) {
-            if (!text) return "";
-            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-            return text.toString().replace(/[&<>"']/g, function(m) { return map[m]; });
+        function toggleAuthMode(mode) {
+            const isLogin = mode === 'login';
+            document.getElementById('auth-mode').value = mode;
+            document.getElementById('auth-title').innerText = isLogin ? 'Whispr' : 'Únete';
+            document.getElementById('auth-submit').innerText = isLogin ? 'Entrar' : 'Registrarse';
+            document.getElementById('auth-toggle-text').innerHTML = isLogin 
+                ? '¿Nuevo? <button class="font-bold text-brand-600" onclick="toggleAuthMode(\'register\')">Regístrate</button>'
+                : '¿Tienes cuenta? <button class="font-bold text-brand-600" onclick="toggleAuthMode(\'login\')">Entra</button>';
         }
 
-        function formatDistance(m) {
-            return m >= 1000 ? (m/1000).toFixed(1) + 'km' : Math.round(m) + 'm';
-        }
-
-        function getTimeAgo(date) {
-            const s = Math.floor((new Date() - date) / 1000);
-            if (s < 60) return 'ahora';
-            const m = Math.floor(s/60);
-            if (m < 60) return `${m}m`;
-            const h = Math.floor(m/60);
-            if (h < 24) return `${h}h`;
-            return Math.floor(h/24) + 'd';
-        }
-
-        function mockServerResponse(uLoc, range) {
-            const basePosts = [
-                { id: '1', text: "Me encanta el nuevo diseño de esta app, se ve súper limpio ✨", lat: uLoc.lat, lng: uLoc.lng, author: 'design_fan', timestamp: new Date(), likes: 12, likedByMe: true },
-                { id: '2', text: "¿Alguien para jugar pádel luego?", lat: uLoc.lat+0.001, lng: uLoc.lng, author: 'alex_sport', timestamp: new Date(Date.now() - 1800000), likes: 2, likedByMe: false },
-                { id: '3', text: "¡Acaban de abrir una cafetería buenísima en la plaza! ☕", lat: uLoc.lat-0.002, lng: uLoc.lng+0.001, author: 'coffee_lover', timestamp: new Date(Date.now() - 3600000), likes: 45, likedByMe: false }
-            ];
-            return basePosts
-                .map(m => ({...m, distance: getDist(uLoc.lat, uLoc.lng, m.lat, m.lng)}))
-                .filter(m => m.distance <= range);
-        }
-
-        function getDist(lat1, lon1, lat2, lon2) {
+        function getDist(p1, p2) {
+            if(!p1 || !p2) return 9999;
             const R = 6371e3; 
             const p = Math.PI/180;
-            const a = 0.5 - Math.cos((lat2-lat1)*p)/2 + Math.cos(lat1*p)*Math.cos(lat2*p) * (1-Math.cos((lon2-lon1)*p))/2;
+            const a = 0.5 - Math.cos((p2.lat-p1.lat)*p)/2 + Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2;
             return 2 * R * Math.asin(Math.sqrt(a));
         }
+
+        function formatDistance(m) { return m >= 1000 ? (m/1000).toFixed(1)+'km' : Math.round(m)+'m'; }
+        function escapeHtml(t) { return t ? t.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])) : ''; }
+        function getTimeAgo(d) {
+            const s = Math.floor((new Date() - new Date(d))/1000);
+            if(s<60) return 'ahora';
+            if(s<3600) return Math.floor(s/60)+'m';
+            if(s<86400) return Math.floor(s/3600)+'h';
+            return Math.floor(s/86400)+'d';
+        }
+        
+        function requestNotificationPermission() {
+            if ("Notification" in window && Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        }
+        function sendNotification(msg) {
+            if("Notification" in window && Notification.permission === "granted") {
+                new Notification("Whispr", { body: msg, icon: 'https://cdn-icons-png.flaticon.com/512/2913/2913564.png' });
+            }
+        }
     </script>
-
-    <style>
-        body { 
-            background-color: #FAFAFA; 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
-        
-        .glass-header {
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-bottom: 1px solid rgba(0,0,0,0.03);
-        }
-
-        .input-whispr {
-            width: 100%;
-            padding: 16px;
-            background: #F3F4F6;
-            border: 2px solid transparent;
-            border-radius: 16px;
-            font-size: 15px;
-            color: #111827;
-            transition: all 0.2s;
-            outline: none;
-            font-weight: 500;
-        }
-        .input-whispr:focus {
-            background: #fff;
-            border-color: #8B5CF6; 
-            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
-        }
-        
-        input[type=range] {
-            -webkit-appearance: none;
-            background: transparent;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 24px;
-            width: 24px;
-            border-radius: 50%;
-            background: #fff;
-            border: 4px solid #8B5CF6;
-            margin-top: -10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            background: #E5E7EB;
-            border-radius: 2px;
-        }
-
-        @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes scale-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-        .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-    </style>
 </head>
-<body class="text-gray-900 h-screen flex flex-col relative overflow-hidden">
+<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden selection:bg-brand-200 selection:text-brand-900">
 
-    <header class="glass-header sticky top-0 z-30 px-5 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-2.5">
-            <div class="w-9 h-9 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-violet-500/20">
-                <i class="fas fa-ghost text-sm"></i>
+    <!-- HEADER -->
+    <header class="bg-white/90 backdrop-blur-md border-b border-gray-100 sticky top-0 z-30 px-4 py-3 flex justify-between items-center shadow-sm">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-brand-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-500/30">
+                <i class="fas fa-ghost"></i>
             </div>
-            <h1 class="text-xl font-bold tracking-tight text-gray-900">Whispr</h1>
+            <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Whispr</h1>
         </div>
-        
         <div class="flex items-center gap-3">
-            <button id="btn-refresh" class="w-9 h-9 rounded-full bg-gray-50 text-gray-500 flex items-center justify-center hover:bg-gray-100 hover:text-violet-600 transition">
-                <i class="fas fa-sync-alt text-sm"></i>
-            </button>
-            <div class="flex items-center gap-2 cursor-pointer hover:opacity-80 transition" onclick="toggleModal('modal-menu', true)">
-                <div id="user-avatar-text" class="w-9 h-9 bg-gray-900 rounded-full text-white text-sm flex items-center justify-center font-bold">?</div>
-            </div>
+            <button id="btn-refresh" class="w-9 h-9 rounded-full bg-gray-50 text-gray-500 hover:text-brand-600 transition flex items-center justify-center"><i class="fas fa-sync-alt"></i></button>
+            <button id="btn-profile" class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center"><i class="fas fa-user"></i></button>
         </div>
     </header>
 
-    <div class="bg-white px-5 py-4 z-20 border-b border-gray-100/50">
-        <div class="flex flex-col gap-2">
-            <div class="flex justify-between items-end mb-1">
-                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Radio de escucha</span>
-                <span id="rangeValue" class="text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1 rounded-lg">500m</span>
-            </div>
-            <input type="range" min="50" max="500" value="250" step="50" id="rangeSlider" class="w-full cursor-pointer">
+    <!-- FILTERS -->
+    <div class="bg-white z-20 border-b border-gray-100">
+        <!-- Slider -->
+        <div class="px-4 py-2 flex justify-between items-center border-b border-gray-50">
+            <span class="text-xs font-bold text-gray-400 uppercase">Radio</span>
+            <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="w-24 accent-brand-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <span id="rangeValue" class="text-xs font-bold text-brand-600 w-10 text-right">500m</span>
+        </div>
+        <!-- Chips -->
+        <div class="flex gap-2 overflow-x-auto px-4 py-3 scrollbar-hide">
+            <button data-filter="all" class="filter-chip bg-brand-600 text-white px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Todos</button>
+            <button data-filter="gossip" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Confidencial</button>
+            <button data-filter="humor" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Humor</button>
+            <button data-filter="love" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Crush</button>
+            <button data-filter="promo" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Planes</button>
         </div>
     </div>
 
-    <main class="flex-1 overflow-y-auto p-5 pb-32 relative z-10" id="feed-container">
+    <!-- FEED -->
+    <main class="flex-1 overflow-y-auto p-4 pb-32 relative z-10" id="feed-container">
+        <!-- GPS Loading Overlay -->
+        <div id="gps-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-50">
+            <i class="fas fa-satellite-dish fa-spin text-3xl text-brand-500 mb-3"></i>
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Localizando...</p>
+        </div>
     </main>
-    
-    <!-- Status Flotante -->
-    <div class="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40 pointer-events-none">
-        <div class="bg-gray-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs font-medium border border-white/10">
-            <div class="flex items-center gap-1.5">
-                <i id="status-icon" class="fas fa-circle-notch fa-spin text-violet-400"></i>
-                <span id="status-text">Iniciando</span>
-            </div>
-            <div class="h-3 w-[1px] bg-white/20"></div>
-            <span id="count-badge" class="bg-white/20 px-1.5 rounded hidden">0</span>
-            <span>cerca de ti</span>
+
+    <!-- FLOATING STATUS -->
+    <div class="fixed bottom-6 left-6 z-40 pointer-events-none">
+        <div class="bg-gray-900/90 backdrop-blur text-white px-3 py-1.5 rounded-full shadow-xl flex items-center gap-2 text-[10px] font-bold border border-white/10">
+            <div class="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+            <span id="status-text">Offline</span>
+            <span class="bg-white/20 px-1.5 rounded" id="count-badge">0</span>
         </div>
     </div>
 
-    <!-- FAB CORREGIDO: Más arriba para evitar navbar móvil (bottom-24) -->
-    <button id="fab-add" class="fixed bottom-24 right-6 bg-gray-900 text-white w-14 h-14 rounded-2xl shadow-xl shadow-gray-900/30 flex items-center justify-center text-xl hover:scale-105 hover:bg-black transition-all duration-300 z-50">
+    <!-- FAB (Fixed & Elevated) -->
+    <button id="fab-add" class="fixed bottom-24 right-6 bg-brand-600 text-white w-14 h-14 rounded-2xl shadow-xl shadow-brand-600/40 flex items-center justify-center text-xl hover:scale-110 hover:rotate-90 transition-all duration-300 z-50">
         <i class="fas fa-plus"></i>
     </button>
 
-    <!-- OVERLAYS DE GPS -->
-    <div id="gps-loading-overlay" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center hidden">
-        <div class="w-16 h-16 bg-violet-50 text-violet-600 rounded-full flex items-center justify-center mb-4 animate-bounce">
-            <i class="fas fa-satellite-dish text-2xl"></i>
-        </div>
-        <h3 class="text-lg font-bold text-gray-900">Esperando satélites...</h3>
-        <p class="text-sm text-gray-500 mt-2 text-center px-8">Necesitamos tu ubicación exacta para mostrarte los secretos de tu zona.</p>
+    <!-- MODALS -->
+    
+    <!-- Auth -->
+    <div id="modal-auth" class="hidden fixed inset-0 z-[70] bg-white flex flex-col items-center justify-center p-8 animate-fade">
+        <div class="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center text-white text-3xl shadow-2xl mb-6"><i class="fas fa-ghost"></i></div>
+        <h2 id="auth-title" class="text-3xl font-black text-gray-900 mb-2">Whispr</h2>
+        <p class="text-gray-500 text-center mb-8 text-sm">La red social secreta de tu barrio.</p>
+        <input type="hidden" id="auth-mode" value="login">
+        <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-xl p-4 mb-3 font-bold focus:ring-2 ring-brand-500" placeholder="Usuario" autocomplete="off">
+        <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl p-4 mb-6 font-bold focus:ring-2 ring-brand-500" placeholder="Contraseña">
+        <button id="auth-submit" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg shadow-lg">Entrar</button>
+        <p id="auth-toggle-text" class="mt-6 text-sm text-gray-500">¿Nuevo? <button class="text-brand-600 font-bold" onclick="toggleAuthMode('register')">Regístrate</button></p>
+        <p class="mt-auto text-[10px] text-gray-400 text-center max-w-xs">Al entrar aceptas que tu ubicación aproximada se usará para mostrarte contenido. Los comportamientos ofensivos serán bloqueados.</p>
     </div>
 
-    <div id="gps-error-overlay" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center hidden">
-        <div class="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4">
-            <i class="fas fa-map-marker-slash text-2xl"></i>
-        </div>
-        <h3 class="text-lg font-bold text-gray-900">Ubicación desactivada</h3>
-        <p class="text-sm text-gray-500 mt-2 text-center px-8 mb-6">Activa el GPS de tu dispositivo para usar Whispr.</p>
-        <button id="btn-retry-gps" class="bg-gray-900 text-white px-6 py-3 rounded-xl font-bold text-sm">Reintentar</button>
-    </div>
-
-    <!-- MODAL AUTH -->
-    <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white items-center justify-center p-6">
-        <div class="w-full max-w-sm animate-fade-in-up">
-            <div class="text-center mb-10">
-                <div class="w-16 h-16 bg-violet-600 rounded-2xl flex items-center justify-center text-white text-3xl mx-auto mb-4 shadow-xl shadow-violet-500/30">
-                    <i class="fas fa-ghost"></i>
-                </div>
-                <h2 id="auth-title" class="text-3xl font-extrabold text-gray-900 mb-2">Whispr</h2>
-                <p class="text-gray-500">Secretos y noticias a tu alrededor.</p>
+    <!-- New Post -->
+    <div id="modal-new-post" class="hidden fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 animate-slide-up shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold">Nuevo Secreto</h3>
+                <button id="btn-close-post" class="text-gray-400 hover:text-gray-900"><i class="fas fa-times text-xl"></i></button>
             </div>
             
-            <input type="hidden" id="auth-mode" value="login">
-            <div class="space-y-4 mb-6">
-                <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off" maxlength="20">
-                <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña" maxlength="100">
+            <textarea id="post-input" rows="4" class="w-full text-lg font-medium placeholder-gray-400 border-none focus:ring-0 resize-none p-0 mb-4" placeholder="Escribe algo interesante..."></textarea>
+            
+            <!-- Category Selector -->
+            <div class="flex gap-3 overflow-x-auto pb-4 mb-2 no-scrollbar">
+                <input type="hidden" id="post-category" value="gossip">
+                <button data-cat="gossip" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-purple-50 text-purple-600 ring-2 ring-brand-500"><i class="fas fa-user-secret mr-1"></i> Confidencial</button>
+                <button data-cat="humor" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-grin-squint mr-1"></i> Humor</button>
+                <button data-cat="love" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-heart mr-1"></i> Crush</button>
+                <button data-cat="promo" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-bullhorn mr-1"></i> Promo</button>
             </div>
-            <div id="auth-feedback" class="text-rose-500 text-sm font-medium text-center mb-4 hidden bg-rose-50 p-2 rounded-lg"></div>
-            <button id="auth-submit" class="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-black transition text-lg">Entrar</button>
-            <div class="mt-8 text-center text-sm text-gray-500">
-                <span id="auth-toggle-text">¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode('register')">Regístrate</button></span>
+
+            <div class="flex justify-between items-center border-t border-gray-100 pt-4">
+                <select id="post-duration" class="text-xs font-bold text-gray-500 bg-gray-100 rounded-lg px-2 py-1 border-0">
+                    <option value="1">Borrar en 1 hora</option>
+                    <option value="24" selected>Borrar en 24 horas</option>
+                </select>
+                <button id="btn-publish" class="bg-brand-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-brand-700 transition">Publicar</button>
             </div>
         </div>
     </div>
 
-    <!-- MODAL NEW POST -->
-    <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
-        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 transform transition-all animate-slide-up">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold text-gray-900">Nuevo Whispr</h3>
-                <button id="btn-cancel-post" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition"><i class="fas fa-times"></i></button>
+    <!-- Profile -->
+    <div id="modal-profile" class="hidden fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-6">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center animate-pop">
+            <div class="w-20 h-20 bg-gray-900 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-2xl shadow-xl"><i class="fas fa-user-astronaut"></i></div>
+            <h3 class="text-lg font-bold text-gray-900 mb-1">Mi Perfil</h3>
+            
+            <div class="bg-gray-50 rounded-xl p-3 mb-4 flex justify-center gap-6">
+                <div class="text-center">
+                    <div class="text-xl font-black text-brand-600" id="prof-post-count">0</div>
+                    <div class="text-[10px] font-bold text-gray-400 uppercase">Posts</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-xl font-black text-rose-500" id="prof-react-count">0</div>
+                    <div class="text-[10px] font-bold text-gray-400 uppercase">Karma</div>
+                </div>
             </div>
-            <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..." maxlength="280"></textarea>
-            <div class="flex justify-between items-center">
-                <div class="text-xs text-gray-400 font-medium flex gap-2"><span class="bg-gray-100 px-2 py-1 rounded">📍 Ubicación Real</span></div>
-                <button id="btn-publish" class="bg-violet-600 hover:bg-violet-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-violet-500/30 transition">Publicar</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- MODAL COMMENTS -->
-    <div id="modal-comments" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
-        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 flex flex-col max-h-[80vh] animate-slide-up">
-            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
-                <h3 class="text-lg font-bold text-gray-900">Comentarios</h3>
-                <button id="btn-close-comments" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition"><i class="fas fa-times"></i></button>
-            </div>
-            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[200px]"></div>
-            <div class="flex gap-2">
-                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario..." maxlength="140">
-                <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition"><i class="fas fa-paper-plane text-xs"></i></button>
-            </div>
-        </div>
-    </div>
 
-    <!-- MODAL MENU -->
-    <div id="modal-menu" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm items-center justify-center p-6" onclick="if(event.target === this) toggleModal('modal-menu', false)">
-        <div class="bg-white w-full max-w-xs rounded-3xl shadow-2xl p-6 text-center animate-scale-in">
-            <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold text-gray-700 border-4 border-white shadow-sm"><span id="user-avatar-text-lg">?</span></div>
-            <h3 id="user-name-display" class="font-bold text-lg text-gray-900 mb-6">@usuario</h3>
-            <button id="btn-logout" class="w-full bg-rose-50 text-rose-600 font-bold py-3 rounded-xl hover:bg-rose-100 transition flex items-center justify-center gap-2"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</button>
+            <label class="block text-left text-xs font-bold text-gray-400 mb-1 ml-1">PSEUDÓNIMO PÚBLICO</label>
+            <input id="prof-pseudo" class="w-full bg-gray-100 border-0 rounded-xl px-3 py-2 mb-6 font-bold text-sm text-gray-800">
+
+            <button onclick="saveProfile()" class="w-full bg-black text-white py-3 rounded-xl font-bold mb-2">Guardar</button>
+            <button id="btn-logout" class="w-full text-rose-500 py-2 font-bold text-sm">Cerrar Sesión</button>
+            <button onclick="toggleModal('modal-profile', false)" class="mt-2 text-gray-400 text-xs">Cancelar</button>
         </div>
     </div>
 
