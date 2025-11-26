@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whispr</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <script>
+        const DEMO_MODE = false; 
+        const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
+
+        let userLocation = null;
+        let currentRange = 500;
+        let authToken = null;
+        let currentUser = null;
+        let currentPostId = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                checkSession();
+                
+                const safeAddListener = (id, event, handler) => {
+                    const el = document.getElementById(id);
+                    if (el) el.addEventListener(event, handler);
+                };
+
+                safeAddListener('btn-logout', 'click', logout);
+                
+                const rangeSlider = document.getElementById('rangeSlider');
+                if(rangeSlider) {
+                    rangeSlider.addEventListener('change', (e) => { 
+                        currentRange = parseInt(e.target.value);
+                        updateRangeUI(currentRange);
+                        fetchPosts(); 
+                    });
+                    rangeSlider.addEventListener('input', (e) => updateRangeUI(e.target.value));
+                }
+
+                safeAddListener('btn-publish', 'click', publishPost);
+                safeAddListener('fab-add', 'click', () => toggleModal('modal-new-post', true));
+                safeAddListener('btn-cancel-post', 'click', () => toggleModal('modal-new-post', false));
+                
+                safeAddListener('auth-submit', 'click', handleAuthSubmit);
+                safeAddListener('btn-refresh', 'click', fetchPosts);
+
+                safeAddListener('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
+                safeAddListener('btn-send-comment', 'click', publishComment);
+
+                const observer = new MutationObserver(() => {
+                    const sm = document.getElementById('user-avatar-text');
+                    const lg = document.getElementById('user-avatar-text-lg');
+                    if(sm && lg && sm.innerText !== lg.innerText) {
+                        lg.innerText = sm.innerText;
+                    }
+                });
+                observer.observe(document.body, {childList: true, subtree: true});
+
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        function checkSession() {
+            let token, username;
+            try {
+                token = localStorage.getItem('whispr_token');
+                username = localStorage.getItem('whispr_username');
+            } catch (e) {}
+
+            if (token && username) {
+                authToken = token;
+                currentUser = username;
+                initApp();
+            } else {
+                toggleModal('modal-auth', true);
+            }
+        }
+
+        function initApp() {
+            try {
+                if (currentUser) {
+                    const initial = currentUser.charAt(0).toUpperCase();
+                    const avatarEl = document.getElementById('user-avatar-text');
+                    const nameEl = document.getElementById('user-name-display');
+                    if(avatarEl) avatarEl.innerText = initial;
+                    if(nameEl) nameEl.innerText = `@${currentUser}`;
+                }
+                toggleModal('modal-auth', false);
+                getLocation();
+            } catch (e) {}
+        }
+
+        async function handleAuthSubmit() {
+            const mode = document.getElementById('auth-mode').value; 
+            const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
+            const passIn = document.getElementById('auth-password').value;
+            const feedback = document.getElementById('auth-feedback');
+            const btn = document.getElementById('auth-submit');
+
+            if (!userIn || !passIn) {
+                showError(feedback, "Completa todos los campos");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            feedback.classList.add('hidden');
+
+            try {
+                if (DEMO_MODE) {
+                    await new Promise(r => setTimeout(r, 800));
+                    loginSuccess("usuario_demo", "fake-token");
+                    return;
+                }
+
+                const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
+                const response = await fetch(`${WORKER_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: userIn, password: passIn })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.error || "Error de autenticación");
+
+                loginSuccess(data.username, data.token);
+
+            } catch (error) {
+                showError(feedback, error.message);
+                btn.disabled = false;
+                btn.innerText = mode === 'login' ? 'Entrar' : 'Registrarse';
+            }
+        }
+
+        function loginSuccess(username, token) {
+            authToken = token;
+            currentUser = username;
+            try {
+                localStorage.setItem('whispr_token', token);
+                localStorage.setItem('whispr_username', username);
+            } catch(e) {}
+            
+            const btn = document.getElementById('auth-submit');
+            if(btn) {
+                btn.innerText = '¡Listo!';
+                btn.classList.replace('bg-gray-900', 'bg-green-500');
+            }
+            
+            setTimeout(() => {
+                try {
+                    initApp();
+                    const userInput = document.getElementById('auth-username');
+                    const passInput = document.getElementById('auth-password');
+                    if(userInput) userInput.value = '';
+                    if(passInput) passInput.value = '';
+                    
+                    if(btn) {
+                        btn.disabled = false;
+                        btn.classList.replace('bg-green-500', 'bg-gray-900');
+                        btn.innerText = 'Entrar';
+                    }
+                } catch(e) {}
+            }, 800);
+        }
+
+        function logout() {
+            try {
+                localStorage.removeItem('whispr_token');
+                localStorage.removeItem('whispr_username');
+            } catch(e){}
+            authToken = null;
+            currentUser = null;
+            location.reload();
+        }
+
+        function toggleAuthMode(mode) {
+            const title = document.getElementById('auth-title');
+            const btn = document.getElementById('auth-submit');
+            const toggleText = document.getElementById('auth-toggle-text');
+            const modeInput = document.getElementById('auth-mode');
+            const feedback = document.getElementById('auth-feedback');
+            
+            if(feedback) feedback.classList.add('hidden');
+
+            if (mode === 'register') {
+                if(title) title.innerText = "Únete a Whispr";
+                if(btn) btn.innerText = "Crear Cuenta";
+                if(toggleText) toggleText.innerHTML = '¿Ya tienes cuenta? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode(\'login\')">Inicia sesión</button>';
+                if(modeInput) modeInput.value = 'register';
+            } else {
+                if(title) title.innerText = "Hola de nuevo";
+                if(btn) btn.innerText = "Entrar";
+                if(toggleText) toggleText.innerHTML = '¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode(\'register\')">Regístrate</button>';
+                if(modeInput) modeInput.value = 'login';
+            }
+        }
+
+        function getLocation() {
+            const statusText = document.getElementById('status-text');
+            const statusIcon = document.getElementById('status-icon');
+            
+            if (!navigator.geolocation) {
+                if(statusText) statusText.innerText = 'GPS Inactivo';
+                if(statusIcon) statusIcon.className = "fas fa-ban text-red-400";
+                fetchPosts(); 
+                return;
+            }
+
+            if(statusText) statusText.innerText = 'Buscando...';
+            if(statusIcon) statusIcon.className = "fas fa-circle-notch fa-spin text-violet-500";
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    if(statusText) statusText.innerText = 'Activo';
+                    if(statusIcon) statusIcon.className = "fas fa-check-circle text-green-500";
+                    fetchPosts();
+                },
+                (error) => {
+                    if(statusText) statusText.innerText = 'Sin señal';
+                    if(statusIcon) statusIcon.className = "fas fa-exclamation-circle text-red-500";
+                    userLocation = { lat: 40.416, lng: -3.703 }; 
+                    fetchPosts();
+                },
+                { enableHighAccuracy: true, timeout: 5000 }
+            );
+        }
+
+        async function fetchPosts() {
+            const loc = userLocation || { lat: 40.416, lng: -3.703 };
+            if (!authToken) return;
+            
+            const feed = document.getElementById('feed-container');
+            const btnRefresh = document.getElementById('btn-refresh');
+            
+            if(btnRefresh) btnRefresh.classList.add('animate-spin');
+
+            if (feed && feed.children.length === 0) {
+                feed.innerHTML = [1,2,3].map(() => `
+                    <div class="bg-white p-5 rounded-3xl border border-gray-100 mb-4 animate-pulse">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 bg-gray-100 rounded-full"></div>
+                            <div class="h-3 bg-gray-100 rounded w-24"></div>
+                        </div>
+                        <div class="h-16 bg-gray-100 rounded-xl w-full"></div>
+                    </div>
+                `).join('');
+            }
+
+            try {
+                let posts = [];
+                if (DEMO_MODE) {
+                    await new Promise(r => setTimeout(r, 800)); 
+                    posts = mockServerResponse(loc, currentRange);
+                } else {
+                    const response = await fetch(`${WORKER_URL}/api/posts?lat=${loc.lat}&lng=${loc.lng}&range=${currentRange}`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    });
+                    
+                    if (!response.ok) {
+                        if (response.status === 401) { logout(); return; }
+                        throw new Error("Error de red");
+                    }
+                    posts = await response.json();
+                }
+                renderPosts(posts);
+            } catch (error) {
+                if(feed) {
+                    feed.innerHTML = `
+                        <div class="text-center py-12">
+                            <div class="bg-red-50 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <i class="fas fa-wifi text-xl"></i>
+                            </div>
+                            <p class="text-gray-500 text-sm font-medium">Modo sin conexión</p>
+                        </div>`;
+                }
+            } finally {
+                if(btnRefresh) btnRefresh.classList.remove('animate-spin');
+            }
+        }
+
+        async function publishPost() {
+            const input = document.getElementById('post-input');
+            const text = input.value.trim();
+            const btn = document.getElementById('btn-publish');
+
+            if (!text || !authToken) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                if (!DEMO_MODE) {
+                    const loc = userLocation || { lat: 40.416, lng: -3.703 };
+                    const res = await fetch(`${WORKER_URL}/api/posts`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({
+                            text: text,
+                            lat: loc.lat,
+                            lng: loc.lng
+                        })
+                    });
+                    if (!res.ok) throw new Error("Error publicando");
+                }
+                input.value = '';
+                toggleModal('modal-new-post', false);
+                fetchPosts();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Publicar';
+            }
+        }
+
+        async function toggleLike(btn, postId) {
+            const icon = btn.querySelector('i');
+            const countSpan = btn.querySelector('span');
+            let currentCount = parseInt(countSpan.innerText) || 0;
+            
+            const isLiked = icon.classList.contains('fas');
+
+            if (isLiked) {
+                icon.classList.remove('fas', 'text-rose-500');
+                icon.classList.add('far');
+                btn.classList.remove('text-rose-500');
+                currentCount = Math.max(0, currentCount - 1);
+            } else {
+                icon.classList.remove('far');
+                icon.classList.add('fas', 'text-rose-500');
+                btn.classList.add('text-rose-500');
+                icon.classList.add('scale-125');
+                setTimeout(() => icon.classList.remove('scale-125'), 200);
+                currentCount++;
+            }
+            countSpan.innerText = currentCount;
+
+            if (!DEMO_MODE) {
+                try {
+                    await fetch(`${WORKER_URL}/api/posts/like`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ postId })
+                    });
+                } catch(e) {
+                    console.error("Error like", e);
+                }
+            }
+        }
+
+        async function openComments(postId) {
+            currentPostId = postId;
+            toggleModal('modal-comments', true);
+            const container = document.getElementById('comments-list');
+            container.innerHTML = '<div class="text-center py-4 text-gray-400"><i class="fas fa-circle-notch fa-spin"></i></div>';
+
+            try {
+                let comments = [];
+                if(DEMO_MODE) {
+                     await new Promise(r => setTimeout(r, 500));
+                     comments = [{author: 'demo_user', text: '¡Qué interesante!', timestamp: new Date()}];
+                } else {
+                    const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    });
+                    if(res.ok) comments = await res.json();
+                }
+                renderComments(comments);
+            } catch(e) {
+                container.innerHTML = '<div class="text-center py-4 text-gray-400">Error cargando comentarios</div>';
+            }
+        }
+
+        function renderComments(comments) {
+            const container = document.getElementById('comments-list');
+            container.innerHTML = '';
+            
+            if(comments.length === 0) {
+                container.innerHTML = '<div class="text-center py-8 text-gray-400 text-sm">Sé el primero en comentar</div>';
+                return;
+            }
+
+            comments.forEach(c => {
+                const el = document.createElement('div');
+                el.className = "mb-4 border-b border-gray-50 pb-2 last:border-0";
+                const time = getTimeAgo(new Date(c.timestamp));
+                el.innerHTML = `
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="font-bold text-xs text-gray-900">${escapeHtml(c.author)}</span>
+                        <span class="text-[10px] text-gray-400">${time}</span>
+                    </div>
+                    <p class="text-sm text-gray-700">${escapeHtml(c.text)}</p>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        async function publishComment() {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if(!text || !currentPostId) return;
+
+            const btn = document.getElementById('btn-send-comment');
+            btn.disabled = true;
+
+            try {
+                if(!DEMO_MODE) {
+                    await fetch(`${WORKER_URL}/api/posts/${currentPostId}/comments`, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ text })
+                    });
+                }
+                input.value = '';
+                openComments(currentPostId);
+            } catch(e) {
+                alert("Error enviando comentario");
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function renderPosts(posts) {
+            const feed = document.getElementById('feed-container');
+            const countBadge = document.getElementById('count-badge');
+            
+            if(!feed) return;
+
+            feed.innerHTML = '';
+            if(countBadge) {
+                countBadge.innerText = posts.length;
+                countBadge.classList.remove('hidden');
+                if(posts.length === 0) countBadge.classList.add('hidden');
+            }
+
+            if (posts.length === 0) {
+                feed.innerHTML = `
+                    <div class="flex flex-col items-center justify-center py-20 text-center px-6">
+                        <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
+                            <i class="fas fa-wind text-3xl"></i>
+                        </div>
+                        <h3 class="text-gray-800 font-bold text-lg mb-1">Está muy tranquilo</h3>
+                        <p class="text-gray-400 text-sm max-w-xs mx-auto">Nadie ha escrito nada en este radio todavía.</p>
+                    </div>`;
+                return;
+            }
+
+            posts.forEach(p => {
+                const isMe = p.author === currentUser;
+                const timeAgo = getTimeAgo(new Date(p.timestamp));
+                
+                const card = document.createElement('div');
+                card.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100/50 hover:shadow-md transition-all duration-300";
+                
+                const colors = ['bg-rose-100 text-rose-600', 'bg-blue-100 text-blue-600', 'bg-emerald-100 text-emerald-600', 'bg-amber-100 text-amber-600', 'bg-violet-100 text-violet-600'];
+                const colorClass = isMe ? 'bg-gray-900 text-white' : colors[(p.author?.length || 0) % colors.length];
+                const authorInitial = (p.author && p.author.length > 0) ? p.author.charAt(0).toUpperCase() : '?';
+                
+                const likesCount = p.likes || 0;
+                const userLiked = p.likedByMe || false;
+                const likeIconClass = userLiked ? 'fas text-rose-500' : 'far';
+                const likeBtnClass = userLiked ? 'text-rose-500' : 'text-gray-400';
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl ${colorClass} flex items-center justify-center text-sm font-bold shadow-sm">
+                                ${authorInitial}
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold text-gray-900 leading-tight">
+                                    ${escapeHtml(p.author || 'Anónimo')}
+                                    ${isMe ? '<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded ml-1 font-normal">Tú</span>' : ''}
+                                </span>
+                                <span class="text-[11px] text-gray-400 font-medium">${timeAgo}</span>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 flex items-center gap-1">
+                            <i class="fas fa-map-pin text-[10px] text-gray-400"></i>
+                            <span class="text-xs font-semibold text-gray-600">${formatDistance(p.distance)}</span>
+                        </div>
+                    </div>
+                    
+                    <p class="text-gray-700 text-[15px] leading-relaxed mb-4 font-medium whitespace-pre-line">${escapeHtml(p.text)}</p>
+                    
+                    <div class="flex items-center justify-between pt-3 border-t border-gray-50">
+                        <div class="flex gap-4">
+                            <button class="group flex items-center gap-1.5 ${likeBtnClass} hover:text-rose-500 transition-colors" onclick="toggleLike(this, '${p.id}')">
+                                <i class="${likeIconClass} fa-heart text-lg group-hover:scale-110 transition-transform"></i>
+                                <span class="text-xs font-bold">${likesCount}</span>
+                            </button>
+                            <button class="flex items-center gap-1.5 text-gray-400 hover:text-violet-500 transition-colors" onclick="openComments('${p.id}')">
+                                <i class="far fa-comment-alt text-lg"></i>
+                                <span class="text-xs font-bold">Comentar</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                feed.appendChild(card);
+            });
+        }
+
+        function updateRangeUI(val) {
+            const el = document.getElementById('rangeValue');
+            if(el) el.innerText = formatDistance(val);
+        }
+
+        function toggleModal(id, show) {
+            const modal = document.getElementById(id);
+            if (!modal) return;
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+
+        function showError(el, msg) {
+            if(el) {
+                el.innerText = msg;
+                el.classList.remove('hidden');
+            }
+        }
+
+        function escapeHtml(text) {
+            return text ? text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : "";
+        }
+
+        function formatDistance(m) {
+            return m >= 1000 ? (m/1000).toFixed(1) + 'km' : Math.round(m) + 'm';
+        }
+
+        function getTimeAgo(date) {
+            const s = Math.floor((new Date() - date) / 1000);
+            if (s < 60) return 'ahora';
+            const m = Math.floor(s/60);
+            if (m < 60) return `${m}m`;
+            const h = Math.floor(m/60);
+            if (h < 24) return `${h}h`;
+            return Math.floor(h/24) + 'd';
+        }
+
+        function mockServerResponse(uLoc, range) {
+            const basePosts = [
+                { id: '1', text: "Me encanta el nuevo diseño de esta app, se ve súper limpio ✨", lat: uLoc.lat, lng: uLoc.lng, author: 'design_fan', timestamp: new Date(), likes: 12, likedByMe: true },
+                { id: '2', text: "¿Alguien para jugar pádel luego?", lat: uLoc.lat+0.001, lng: uLoc.lng, author: 'alex_sport', timestamp: new Date(Date.now() - 1800000), likes: 2, likedByMe: false },
+                { id: '3', text: "¡Acaban de abrir una cafetería buenísima en la plaza! ☕", lat: uLoc.lat-0.002, lng: uLoc.lng+0.001, author: 'coffee_lover', timestamp: new Date(Date.now() - 3600000), likes: 45, likedByMe: false }
+            ];
+            
+            return basePosts
+                .map(m => ({...m, distance: getDist(uLoc.lat, uLoc.lng, m.lat, m.lng)}))
+                .filter(m => m.distance <= range);
+        }
+
+        function getDist(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; 
+            const p = Math.PI/180;
+            const a = 0.5 - Math.cos((lat2-lat1)*p)/2 + Math.cos(lat1*p)*Math.cos(lat2*p) * (1-Math.cos((lon2-lon1)*p))/2;
+            return 2 * R * Math.asin(Math.sqrt(a));
+        }
+    </script>
+
+    <style>
+        body { 
+            background-color: #FAFAFA; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        
+        .glass-header {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+        }
+
+        .input-whispr {
+            width: 100%;
+            padding: 16px;
+            background: #F3F4F6;
+            border: 2px solid transparent;
+            border-radius: 16px;
+            font-size: 15px;
+            color: #111827;
+            transition: all 0.2s;
+            outline: none;
+            font-weight: 500;
+        }
+        .input-whispr:focus {
+            background: #fff;
+            border-color: #8B5CF6; 
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
+        }
+        
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #fff;
+            border: 4px solid #8B5CF6;
+            margin-top: -10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #E5E7EB;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="text-gray-900 h-screen flex flex-col relative overflow-hidden">
+
+    <header class="glass-header sticky top-0 z-30 px-5 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-violet-500/20">
+                <i class="fas fa-ghost text-sm"></i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-gray-900">Whispr</h1>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <button id="btn-refresh" class="w-9 h-9 rounded-full bg-gray-50 text-gray-500 flex items-center justify-center hover:bg-gray-100 hover:text-violet-600 transition">
+                <i class="fas fa-sync-alt text-sm"></i>
+            </button>
+            <div class="flex items-center gap-2 cursor-pointer hover:opacity-80 transition" onclick="toggleModal('modal-menu', true)">
+                <div id="user-avatar-text" class="w-9 h-9 bg-gray-900 rounded-full text-white text-sm flex items-center justify-center font-bold">?</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="bg-white px-5 py-4 z-20 border-b border-gray-100/50">
+        <div class="flex flex-col gap-2">
+            <div class="flex justify-between items-end mb-1">
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Radio de escucha</span>
+                <span id="rangeValue" class="text-sm font-bold text-violet-600 bg-violet-50 px-3 py-1 rounded-lg">500m</span>
+            </div>
+            <input type="range" min="100" max="5000" value="500" step="100" id="rangeSlider" class="w-full cursor-pointer">
+        </div>
+    </div>
+
+    <main class="flex-1 overflow-y-auto p-5 pb-24 relative z-10" id="feed-container">
+    </main>
+    
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20 pointer-events-none">
+        <div class="bg-gray-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs font-medium">
+            <div class="flex items-center gap-1.5">
+                <i id="status-icon" class="fas fa-circle-notch fa-spin text-violet-400"></i>
+                <span id="status-text">Iniciando</span>
+            </div>
+            <div class="h-3 w-[1px] bg-white/20"></div>
+            <span id="count-badge" class="bg-white/20 px-1.5 rounded hidden">0</span>
+            <span>cerca de ti</span>
+        </div>
+    </div>
+
+    <button id="fab-add" class="absolute bottom-6 right-6 bg-gray-900 text-white w-14 h-14 rounded-2xl shadow-xl shadow-gray-900/20 flex items-center justify-center text-xl hover:scale-105 hover:bg-black transition-all duration-300 z-40">
+        <i class="fas fa-plus"></i>
+    </button>
+
+    <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white items-center justify-center p-6">
+        <div class="w-full max-w-sm animate-fade-in-up">
+            <div class="text-center mb-10">
+                <div class="w-16 h-16 bg-violet-600 rounded-2xl flex items-center justify-center text-white text-3xl mx-auto mb-4 shadow-xl shadow-violet-500/30">
+                    <i class="fas fa-ghost"></i>
+                </div>
+                <h2 id="auth-title" class="text-3xl font-extrabold text-gray-900 mb-2">Whispr</h2>
+                <p class="text-gray-500">Secretos y noticias a tu alrededor.</p>
+            </div>
+            
+            <input type="hidden" id="auth-mode" value="login">
+            
+            <div class="space-y-4 mb-6">
+                <input type="text" id="auth-username" class="input-whispr" placeholder="Usuario" autocomplete="off">
+                <input type="password" id="auth-password" class="input-whispr" placeholder="Contraseña">
+            </div>
+
+            <div id="auth-feedback" class="text-rose-500 text-sm font-medium text-center mb-4 hidden bg-rose-50 p-2 rounded-lg"></div>
+
+            <button id="auth-submit" class="w-full bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-black transition text-lg">
+                Entrar
+            </button>
+
+            <div class="mt-8 text-center text-sm text-gray-500">
+                <span id="auth-toggle-text">
+                    ¿Nuevo aquí? <button class="text-violet-600 font-bold hover:underline" onclick="toggleAuthMode('register')">Regístrate</button>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 transform transition-all animate-slide-up">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Nuevo Whispr</h3>
+                <button id="btn-cancel-post" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <textarea id="post-input" rows="5" class="w-full bg-gray-50 border-0 rounded-2xl p-4 text-gray-900 placeholder-gray-400 focus:ring-0 text-lg resize-none mb-4 font-medium" placeholder="Escribe algo interesante..."></textarea>
+            
+            <div class="flex justify-between items-center">
+                <div class="text-xs text-gray-400 font-medium flex gap-2">
+                    <span class="bg-gray-100 px-2 py-1 rounded">📍 Tu ubicación</span>
+                    <span class="bg-gray-100 px-2 py-1 rounded">🔒 Anónimo</span>
+                </div>
+                <button id="btn-publish" class="bg-violet-600 hover:bg-violet-700 text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-violet-500/30 transition">
+                    Publicar
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modal-comments" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 flex flex-col max-h-[80vh] animate-slide-up">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
+                <h3 class="text-lg font-bold text-gray-900">Comentarios</h3>
+                <button id="btn-close-comments" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 flex items-center justify-center transition">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[200px]">
+            </div>
+
+            <div class="flex gap-2">
+                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-xl px-4 text-sm focus:ring-1 focus:ring-violet-500" placeholder="Añade un comentario...">
+                <button id="btn-send-comment" class="bg-violet-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-violet-700 transition">
+                    <i class="fas fa-paper-plane text-xs"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-menu" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm items-center justify-center p-6" onclick="if(event.target === this) toggleModal('modal-menu', false)">
+        <div class="bg-white w-full max-w-xs rounded-3xl shadow-2xl p-6 text-center animate-scale-in">
+            <div class="w-16 h-16 bg-gray-100 rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold text-gray-700 border-4 border-white shadow-sm">
+                <span id="user-avatar-text-lg">?</span>
+            </div>
+            <h3 id="user-name-display" class="font-bold text-lg text-gray-900 mb-6">@usuario</h3>
+            
+            <button id="btn-logout" class="w-full bg-rose-50 text-rose-600 font-bold py-3 rounded-xl hover:bg-rose-100 transition flex items-center justify-center gap-2">
+                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+            </button>
+        </div>
+    </div>
+
+    <style>
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slide-up {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        @keyframes scale-in {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in-up { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    </style>
+
+</body>
+</html>
