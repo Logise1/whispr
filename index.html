@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
     
-    <!-- CSP ajustada para permitir workers de blob (necesario para mapas y audio) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; media-src 'self' data: blob:;">
     
     <title>Whispr</title>
@@ -13,7 +12,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     
-    <!-- Leaflet (Mapa) -->
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
@@ -32,20 +31,26 @@
                         brand: { 500: '#111111', 600: '#000000' },
                         accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
                     },
-                    zIndex: { '60': '60', '70': '70' }
+                    height: { 'screen-dvh': '100dvh' } // Altura real móvil
                 }
             }
         }
     </script>
 
     <style>
-        /* Corrección Mapa */
-        #map-view { height: 100%; width: 100%; z-index: 0; }
-        /* Corrección Audio Pulse */
+        /* FIX MÓVIL: Safe Areas para que no se tapen los botones */
+        body { padding-bottom: env(safe-area-inset-bottom); }
+        .pb-safe { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+        
+        /* Mapa Fix */
+        #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
+        #map-view { width: 100%; height: 100%; }
+        .custom-cluster-icon div { width: 30px; height: 30px; line-height: 30px; text-align: center; }
+        
+        /* Audio Pulse */
         .recording-pulse { animation: pulse-red 1.5s infinite; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         
-        /* Scrollbar oculta */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -98,7 +103,8 @@
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
+                    // Actualización visual inmediata
+                    if(state.currentTab === 'feed') updateDistancesOnly(); 
                 });
                 slider.addEventListener('change', () => { state.lastFetchLocation = null; fetchPosts(); });
             }
@@ -108,14 +114,11 @@
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Audio (Eventos mejorados para evitar cortes)
+            // Audio
             const btnRecord = document.getElementById('btn-record');
             if(btnRecord){
-                // Mouse
                 btnRecord.addEventListener('mousedown', startRecording);
                 btnRecord.addEventListener('mouseup', stopRecording);
-                btnRecord.addEventListener('mouseleave', stopRecording); // Si saca el dedo/ratón
-                // Touch (Móvil)
                 btnRecord.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
                 btnRecord.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
             }
@@ -147,6 +150,10 @@
                     document.getElementById('post-category').value = e.currentTarget.dataset.cat;
                 });
             });
+            
+            // Comentarios
+            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
+            on('btn-send-comment', 'click', publishComment);
         }
 
         function on(id, evt, handler) {
@@ -154,7 +161,6 @@
             if(el) el.addEventListener(evt, handler);
         }
 
-        // --- AUTH ---
         function checkSession() {
             try {
                 state.authToken = localStorage.getItem('whispr_token');
@@ -214,24 +220,48 @@
             location.reload();
         }
 
-        // --- GEO & MAPS (FIXED) ---
+        // --- GEO & MAPS (OPTIMIZADO MÓVIL) ---
         function startLiveTracking() {
             if(!navigator.geolocation) return;
             document.getElementById('gps-loading').classList.remove('hidden');
+            
             navigator.geolocation.watchPosition(
                 (pos) => {
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     document.getElementById('gps-loading').classList.add('hidden');
                     
-                    if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 8) {
+                    // 1. ACTUALIZACIÓN INSTANTÁNEA (Solo texto)
+                    updateDistancesOnly(); 
+
+                    // 2. FETCH SI ES NECESARIO (>20m para ahorrar batería/datos)
+                    if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 20) {
                         fetchPosts();
-                    } else {
-                        if (state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    }
+                    } 
                 },
                 (err) => console.warn(err),
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
+        }
+
+        // ESTA FUNCIÓN ES LA CLAVE DE LA VELOCIDAD
+        function updateDistancesOnly() {
+            if (!state.userLocation) return;
+            
+            const cards = document.querySelectorAll('.post-card'); 
+            cards.forEach(card => {
+                const lat = parseFloat(card.dataset.lat);
+                const lng = parseFloat(card.dataset.lng);
+                
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const dist = getDist(state.userLocation, {lat, lng});
+                    const label = card.querySelector('.dist-label');
+                    if(label) label.innerText = formatDistance(dist);
+                    
+                    // Ocultar instantáneamente si sale del rango del slider
+                    if(dist > state.range) card.style.display = 'none';
+                    else card.style.display = 'block';
+                }
+            });
         }
 
         function switchTab(tab) {
@@ -239,7 +269,7 @@
             const feedBtn = document.getElementById('tab-feed');
             const mapBtn = document.getElementById('tab-map');
             const feedContainer = document.getElementById('feed-container');
-            const mapContainer = document.getElementById('map-view-container'); // Contenedor padre
+            const mapContainer = document.getElementById('map-view-container');
 
             if (tab === 'feed') {
                 feedBtn.classList.add('text-black'); feedBtn.classList.remove('text-gray-400');
@@ -252,16 +282,18 @@
                 feedContainer.classList.add('hidden');
                 mapContainer.classList.remove('hidden');
                 
-                // FIX: Esperar un tick para que el contenedor sea visible antes de renderizar mapa
+                // FIX MAPA MÓVIL: Esperar renderizado CSS
                 setTimeout(() => {
                     initMap();
-                    if(state.mapInstance) state.mapInstance.invalidateSize(); // Crucial para que se vean los tiles
-                }, 100);
+                    if(state.mapInstance) {
+                        state.mapInstance.invalidateSize(); // Forzar ajuste
+                    }
+                }, 200);
             }
         }
 
         function initMap() {
-            if (state.mapInstance) return; // Ya inicializado
+            if (state.mapInstance) return;
             if (!state.userLocation) return;
 
             state.mapInstance = L.map('map-view').setView([state.userLocation.lat, state.userLocation.lng], 15);
@@ -273,7 +305,6 @@
 
             state.markerCluster = L.markerClusterGroup({
                 showCoverageOnHover: false,
-                zoomToBoundsOnClick: true,
                 iconCreateFunction: function(cluster) {
                     return L.divIcon({ 
                         html: `<div class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg border-2 border-white">${cluster.getChildCount()}</div>`, 
@@ -321,68 +352,46 @@
             });
         }
 
-        // --- AUDIO RECORDER (FIXED) ---
+        // --- AUDIO RECORDER ---
         async function startRecording() {
             if (!navigator.mediaDevices) return alert("Audio no soportado");
-            
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // Fix: Usar MIME type soportado
                 let mimeType = 'audio/webm';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/mp4'; // Fallback para Safari iOS
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = ''; // Dejar que el navegador decida
-                    }
-                }
+                if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/mp4'; 
 
                 state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
                 state.audioChunks = [];
-                
-                state.mediaRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) state.audioChunks.push(e.data);
-                };
-                
+                state.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.audioChunks.push(e.data); };
                 state.mediaRecorder.onstop = processAudio;
-                
-                // Grabar en chunks pequeños (100ms) para asegurar datos
                 state.mediaRecorder.start(100); 
                 state.isRecording = true;
                 
-                // UI
                 const btn = document.getElementById('btn-record');
                 btn.classList.add('bg-red-500', 'recording-pulse', 'text-white');
                 btn.classList.remove('bg-gray-100', 'text-gray-500');
-                document.getElementById('audio-status').innerText = "Grabando... (Suelta para terminar)";
+                document.getElementById('audio-status').innerText = "Grabando...";
                 document.getElementById('audio-status').classList.remove('hidden');
-
-            } catch(err) {
-                alert("Error micrófono: " + err.message);
-            }
+            } catch(err) { alert("Error micrófono"); }
         }
 
         function stopRecording() {
             if (!state.isRecording || !state.mediaRecorder) return;
-            state.mediaRecorder.stop(); // Esto dispara onstop
-            state.mediaRecorder.stream.getTracks().forEach(track => track.stop()); // Apagar mic
+            state.mediaRecorder.stop();
+            state.mediaRecorder.stream.getTracks().forEach(track => track.stop());
             state.isRecording = false;
-            
             const btn = document.getElementById('btn-record');
             btn.classList.remove('bg-red-500', 'recording-pulse', 'text-white');
             btn.classList.add('bg-gray-100', 'text-gray-500');
         }
 
         function processAudio() {
-            // Fix: Crear blob con el tipo correcto
             const mimeType = state.audioChunks.length > 0 ? state.audioChunks[0].type : 'audio/webm';
             const blob = new Blob(state.audioChunks, { type: mimeType });
-            
             const reader = new FileReader();
             reader.readAsDataURL(blob);
             reader.onloadend = () => {
                 state.audioBlobBase64 = reader.result;
-                // Preview
                 const container = document.getElementById('audio-preview-container');
                 container.classList.remove('hidden');
                 container.innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8"></audio>`;
@@ -406,19 +415,16 @@
             if(!state.authToken || !state.userLocation) return;
             document.getElementById('btn-refresh').classList.add('animate-spin');
             try {
-                // Rango x2 para mapa
                 const range = state.currentTab === 'map' ? Math.max(state.range, 5000) : state.range;
-                
                 const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${range}`, {
                     headers: { 'Authorization': `Bearer ${state.authToken}` }
                 });
                 if(res.status === 401) return logout();
-                
                 state.loadedPosts = await res.json();
+                state.lastFetchLocation = {...state.userLocation};
                 
                 if (state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
                 else updateMapMarkers(state.loadedPosts);
-
             } catch(e) { console.error(e); } finally {
                 document.getElementById('btn-refresh').classList.remove('animate-spin');
             }
@@ -452,8 +458,14 @@
             });
 
             filtered.forEach(p => {
-                if (!document.getElementById(`post-${p.id}`)) {
-                    feed.appendChild(createCard(p));
+                let card = document.getElementById(`post-${p.id}`);
+                if(card) {
+                    // Update ligero si es necesario
+                    const distLabel = card.querySelector('.dist-label');
+                    if(distLabel) distLabel.innerText = formatDistance(p.distance);
+                } else {
+                    card = createCard(p);
+                    feed.appendChild(card);
                 }
             });
         }
@@ -462,11 +474,12 @@
             const div = document.createElement('div');
             div.id = `post-${p.id}`;
             div.dataset.id = p.id;
-            div.className = "bg-white p-5 mb-3 border-b border-gray-100 last:border-0";
+            div.dataset.lat = p.lat; // Datos clave para el update rápido
+            div.dataset.lng = p.lng;
+            div.className = "post-card bg-white p-5 mb-3 border-b border-gray-100 last:border-0";
             
             const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
             const popular = (p.reactions?.fire?.length || 0) > 5;
-            
             let audioHtml = p.audio ? `<div class="mt-2 mb-2"><audio controls src="${p.audio}" class="w-full h-8 rounded-lg bg-gray-50"></audio></div>` : '';
 
             div.innerHTML = `
@@ -476,18 +489,50 @@
                         ${popular ? '<i class="fas fa-medal text-yellow-500 text-sm"></i>' : ''}
                         <span class="text-xs text-gray-400">• ${getTimeAgo(p.timestamp)}</span>
                     </div>
-                    <span class="text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded">${formatDistance(p.distance)}</span>
+                    <span class="dist-label text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded">${formatDistance(p.distance)}</span>
                 </div>
                 <div class="mb-3">
                     <span class="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 ${cat.color}">${cat.label}</span>
                     <p class="text-gray-800 text-[15px] leading-snug break-words whitespace-pre-line">${escapeHtml(p.text)}</p>
                     ${audioHtml}
                 </div>
-                <div class="flex gap-4 text-gray-400 text-sm">
-                    <span class="flex items-center gap-1"><i class="fas fa-fire text-orange-500"></i> ${p.reactions?.fire?.length || 0}</span>
+                <div class="flex items-center justify-between">
+                    <div class="flex gap-4">
+                        ${renderReactionBtn(p, 'like', 'fa-thumbs-up')}
+                        ${renderReactionBtn(p, 'fire', 'fa-fire')}
+                        ${renderReactionBtn(p, 'dislike', 'fa-thumbs-down')}
+                        <button onclick="openComments('${p.id}')" class="flex items-center gap-1.5 group text-gray-300 hover:text-black">
+                            <i class="far fa-comment-alt"></i>
+                            <span class="text-xs font-bold">Comentar</span>
+                        </button>
+                    </div>
+                    <button onclick="showOptions('${p.id}', '${p.author}')" class="text-gray-300 hover:text-black"><i class="fas fa-ellipsis-h"></i></button>
                 </div>
             `;
             return div;
+        }
+
+        function renderReactionBtn(p, type, icon) {
+            const count = (p.reactions && p.reactions[type] ? p.reactions[type].length : 0);
+            const active = (p.reactions && p.reactions[type] && p.reactions[type].includes(state.currentUser));
+            const color = active ? (type === 'fire' ? 'text-orange-500' : 'text-black') : 'text-gray-300';
+            return `
+                <button onclick="react('${p.id}', '${type}')" class="flex items-center gap-1.5 group">
+                    <i class="fas ${icon} ${color} group-hover:scale-110 transition-transform"></i>
+                    <span class="text-xs font-bold ${active ? 'text-black' : 'text-gray-400'} count-${type}">${count > 0 ? count : ''}</span>
+                </button>
+            `;
+        }
+
+        async function react(postId, type) {
+            try {
+                await fetch(`${WORKER_URL}/api/posts/react`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ postId, type })
+                });
+                fetchPosts();
+            } catch(e) {}
         }
 
         async function publishPost() {
@@ -518,21 +563,21 @@
                 document.getElementById('post-input').value = '';
                 resetAudio();
                 fetchPosts();
-            } catch(e) { alert(e.message); } 
-            finally { btn.disabled = false; }
+            } catch(e) { alert(e.message); } finally { btn.disabled = false; }
         }
 
-        // --- UTILS ---
-        function toggleModal(id, show) {
-            const el = document.getElementById(id);
-            if(show) el.classList.remove('hidden'); else el.classList.add('hidden');
-        }
         function openProfile() {
             const myPosts = state.loadedPosts.filter(p => p.author === state.currentUser).length;
+            let totalReactions = 0;
+            state.loadedPosts.filter(p => p.author === state.currentUser).forEach(p => {
+                if(p.reactions) totalReactions += (p.reactions.like?.length||0) + (p.reactions.dislike?.length||0) + (p.reactions.fire?.length||0);
+            });
             document.getElementById('prof-post-count').innerText = myPosts;
+            document.getElementById('prof-react-count').innerText = totalReactions;
             document.getElementById('prof-pseudo').value = state.pseudonym;
-            toggleModal('modal-profile', true); 
+            toggleModal('modal-profile', true);
         }
+
         function saveProfile() {
             const newPseudo = document.getElementById('prof-pseudo').value.trim();
             if(newPseudo) {
@@ -542,10 +587,82 @@
             }
             toggleModal('modal-profile', false);
         }
+
+        function showOptions(postId, authorId) {
+            if(authorId === state.currentUser) {
+                if(confirm("¿Borrar mensaje?")) {
+                    fetch(`${WORKER_URL}/api/posts/${postId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${state.authToken}` }})
+                    .then(() => fetchPosts());
+                }
+            } else {
+                if(confirm("Opciones:\n\nOk: Reportar\nCancelar: Bloquear")) {
+                    fetch(`${WORKER_URL}/api/report`, { 
+                        method: 'POST', 
+                        headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
+                        body: JSON.stringify({ postId, reason: 'offensive' })
+                    });
+                    alert("Reportado.");
+                } else {
+                    if(confirm(`¿Bloquear?`)) {
+                        state.blockedUsers.push(authorId);
+                        localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
+                        renderPostsSmart(state.loadedPosts); 
+                    }
+                }
+            }
+        }
+
+        // --- COMENTARIOS ---
+        async function openComments(postId) {
+            state.currentPostId = postId;
+            toggleModal('modal-comments', true);
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
+            try {
+                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                if(res.ok) renderComments(await res.json());
+            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-red-400">Error</p>'; }
+        }
+
+        function renderComments(comments) {
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '';
+            if(comments.length === 0) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sin comentarios.</p>'; return; }
+            comments.forEach(c => {
+                const el = document.createElement('div');
+                el.className = "mb-3 border-b border-gray-50 pb-2";
+                el.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>`;
+                list.appendChild(el);
+            });
+        }
+
+        async function publishComment() {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if(!text || !state.currentPostId) return;
+            const btn = document.getElementById('btn-send-comment');
+            btn.disabled = true;
+            try {
+                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                input.value = '';
+                openComments(state.currentPostId);
+            } catch(e) {} finally { btn.disabled = false; }
+        }
+
+        // --- UTILS ---
+        function toggleModal(id, show) {
+            const el = document.getElementById(id);
+            if(show) el.classList.remove('hidden'); else el.classList.add('hidden');
+        }
         function getDist(p1, p2) {
             if(!p1 || !p2) return 9999;
-            const R = 6371e3; 
-            const p = Math.PI/180;
+            const R = 6371e3; const p = Math.PI/180;
             const a = 0.5 - Math.cos((p2.lat-p1.lat)*p)/2 + Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2;
             return 2 * R * Math.asin(Math.sqrt(a));
         }
@@ -555,9 +672,11 @@
             const s = Math.floor((new Date() - new Date(d))/1000);
             if(s<60) return '1m'; if(s<3600) return Math.floor(s/60)+'m'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d';
         }
+        function requestNotificationPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }
+        function sendNotification(msg) { if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg }); }
     </script>
 </head>
-<body class="bg-white text-black h-screen flex flex-col overflow-hidden font-sans antialiased">
+<body class="bg-white text-black h-screen-dvh flex flex-col overflow-hidden font-sans antialiased">
 
     <!-- HEADER -->
     <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center h-[60px]">
@@ -581,42 +700,31 @@
         </div>
     </div>
 
-    <!-- CONTENT AREA -->
+    <!-- CONTENT -->
     <div class="flex-1 relative overflow-hidden">
-        <!-- FEED -->
         <div id="feed-container" class="absolute inset-0 overflow-y-auto p-0 pb-24 bg-white z-10">
             <div id="gps-loading" class="flex flex-col items-center justify-center h-full">
                 <div class="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mb-4"></div>
                 <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Localizando...</p>
             </div>
         </div>
-        
-        <!-- MAP CONTAINER -->
         <div id="map-view-container" class="absolute inset-0 z-0 hidden">
-            <div id="map-view" class="h-full w-full"></div>
+            <div id="map-view"></div>
         </div>
     </div>
 
     <!-- BOTTOM NAV -->
-    <div class="bg-white border-t border-gray-100 h-[60px] flex justify-around items-center px-2 z-30">
-        <button id="tab-feed" class="flex-1 flex flex-col items-center justify-center text-black">
-            <i class="fas fa-stream text-lg"></i>
-            <span class="text-[10px] font-bold mt-1">Lista</span>
-        </button>
+    <div class="bg-white border-t border-gray-100 h-[60px] flex justify-around items-center px-2 z-30 pb-safe">
+        <button id="tab-feed" class="flex-1 flex flex-col items-center justify-center text-black"><i class="fas fa-stream text-lg"></i><span class="text-[10px] font-bold mt-1">Lista</span></button>
         <div class="flex-2 px-2 flex flex-col items-center justify-center w-1/2">
             <span id="rangeValue" class="text-[10px] font-bold text-gray-400 mb-1">500m</span>
             <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black">
         </div>
-        <button id="tab-map" class="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <i class="fas fa-map-marked-alt text-lg"></i>
-            <span class="text-[10px] font-bold mt-1">Mapa</span>
-        </button>
+        <button id="tab-map" class="flex-1 flex flex-col items-center justify-center text-gray-400"><i class="fas fa-map-marked-alt text-lg"></i><span class="text-[10px] font-bold mt-1">Mapa</span></button>
     </div>
 
-    <!-- FAB -->
-    <button id="fab-add" class="fixed bottom-20 right-5 bg-black text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform z-40">
-        <i class="fas fa-plus"></i>
-    </button>
+    <!-- FAB (Higher for mobile nav) -->
+    <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform z-40"><i class="fas fa-plus"></i></button>
 
     <!-- MODALS -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
@@ -626,18 +734,11 @@
                 <button id="btn-close-post" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
             </div>
             <textarea id="post-input" rows="3" class="w-full text-lg placeholder-gray-300 border-none focus:ring-0 resize-none p-0 mb-4" placeholder="¿Qué está pasando?"></textarea>
-            
-            <div class="mb-6">
-                <div class="flex items-center gap-3">
-                    <button id="btn-record" class="w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center transition-all select-none touch-none"><i class="fas fa-microphone text-xl"></i></button>
-                    <div class="flex-1">
-                        <p id="audio-status" class="text-xs font-bold text-gray-400 hidden">Grabando...</p>
-                        <div id="audio-preview-container" class="hidden w-full"></div>
-                    </div>
-                    <button id="btn-delete-audio" class="text-red-500 hidden"><i class="fas fa-trash"></i></button>
-                </div>
+            <div class="mb-6 flex items-center gap-3">
+                <button id="btn-record" class="w-12 h-12 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center touch-none"><i class="fas fa-microphone text-xl"></i></button>
+                <div class="flex-1"><p id="audio-status" class="text-xs font-bold text-gray-400 hidden">Grabando...</p><div id="audio-preview-container" class="hidden w-full"></div></div>
+                <button id="btn-delete-audio" class="text-red-500 hidden"><i class="fas fa-trash"></i></button>
             </div>
-
             <label class="block text-xs font-bold text-gray-400 mb-2 uppercase">Categoría</label>
             <div class="flex flex-wrap gap-2 mb-6">
                 <input type="hidden" id="post-category" value="gossip">
@@ -646,15 +747,10 @@
                 <button data-cat="love" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent">Crush</button>
                 <button data-cat="promo" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent">Plan</button>
             </div>
-
             <div class="flex items-center justify-between border-t border-gray-50 pt-4">
                 <div class="flex items-center gap-2">
                     <i class="far fa-clock text-gray-400"></i>
-                    <select id="post-duration" class="text-xs font-bold text-gray-600 bg-transparent border-none focus:ring-0 p-0 cursor-pointer">
-                        <option value="1">1 Hora</option>
-                        <option value="24" selected>24 Horas</option>
-                        <option value="-1">Para siempre</option>
-                    </select>
+                    <select id="post-duration" class="text-xs font-bold text-gray-600 bg-transparent border-none focus:ring-0 p-0 cursor-pointer"><option value="1">1 Hora</option><option value="24" selected>24 Horas</option><option value="-1">Para siempre</option></select>
                 </div>
                 <button id="btn-publish" class="bg-black text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg">Publicar</button>
             </div>
@@ -666,6 +762,7 @@
             <div class="w-20 h-20 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold"><i class="fas fa-user"></i></div>
             <div class="flex justify-center gap-8 mb-6">
                 <div><span class="block text-xl font-bold text-black" id="prof-post-count">0</span><span class="text-[10px] font-bold text-gray-400 uppercase">Posts</span></div>
+                <div><span class="block text-xl font-bold text-accent-600" id="prof-react-count">0</span><span class="text-[10px] font-bold text-gray-400 uppercase">Karma</span></div>
             </div>
             <input id="prof-pseudo" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-800 placeholder-gray-400 focus:ring-2 ring-black" placeholder="Tu Alias">
             <button onclick="saveProfile()" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm mb-2">Guardar</button>
@@ -684,6 +781,20 @@
             <button id="auth-submit" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm shadow-lg mt-4">Entrar</button>
         </div>
         <p id="auth-toggle-text" class="mt-8 text-sm text-gray-500"><span class="text-gray-400">¿Nuevo?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button></p>
+    </div>
+
+    <div id="modal-comments" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 flex flex-col max-h-[80vh] shadow-2xl">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
+                <h3 class="text-sm font-bold text-gray-400 uppercase">Comentarios</h3>
+                <button id="btn-close-comments" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
+            </div>
+            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 min-h-[150px]"></div>
+            <div class="flex gap-2">
+                <input id="comment-input" type="text" class="flex-1 bg-gray-50 border-0 rounded-full px-4 text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Tu opinión..." maxlength="140">
+                <button id="btn-send-comment" class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-gray-900"><i class="fas fa-arrow-up text-xs"></i></button>
+            </div>
+        </div>
     </div>
 
 </body>
