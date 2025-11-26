@@ -3,29 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#7c3aed">
-    <!-- CSP para seguridad -->
+    <meta name="theme-color" content="#ffffff">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob:;">
     
     <title>Whispr</title>
 
-    <!-- Librerías -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Configuración Tailwind -->
     <script>
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
-                    colors: { brand: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed', 900: '#4c1d95' } },
-                    animation: { 'pop': 'pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)', 'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both' },
-                    keyframes: {
-                        pop: { '0%': { transform: 'scale(0.5)' }, '100%': { transform: 'scale(1)' } },
-                        shake: { '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' }, '20%, 80%': { transform: 'translate3d(2px, 0, 0)' }, '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' }, '40%, 60%': { transform: 'translate3d(4px, 0, 0)' } }
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: { 
+                        brand: { 500: '#111111', 600: '#000000' }, // Minimalist Black Brand
+                        accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' } // Violet accents
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'float': '0 10px 30px -5px rgba(0, 0, 0, 0.1)'
                     }
                 }
             }
@@ -33,17 +32,15 @@
     </script>
 
     <script>
-        // --- CONFIGURACIÓN ---
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
         const CATEGORIES = {
-            gossip: { label: 'Confidencial', icon: 'fa-user-secret', color: 'bg-purple-100 text-purple-600' },
-            humor: { label: 'Humor', icon: 'fa-grin-squint', color: 'bg-yellow-100 text-yellow-600' },
-            love: { label: 'Crush', icon: 'fa-heart', color: 'bg-rose-100 text-rose-600' },
-            idea: { label: 'Pensamiento', icon: 'fa-lightbulb', color: 'bg-blue-100 text-blue-600' },
-            promo: { label: 'Plan/Promo', icon: 'fa-bullhorn', color: 'bg-green-100 text-green-600' }
+            gossip: { label: 'Secreto', icon: 'fa-mask', color: 'bg-purple-100 text-purple-700' },
+            humor: { label: 'Humor', icon: 'fa-laugh', color: 'bg-yellow-100 text-yellow-700' },
+            love: { label: 'Crush', icon: 'fa-heart', color: 'bg-rose-100 text-rose-700' },
+            idea: { label: 'Idea', icon: 'fa-lightbulb', color: 'bg-blue-100 text-blue-700' },
+            promo: { label: 'Plan', icon: 'fa-ticket-alt', color: 'bg-green-100 text-green-700' }
         };
 
-        // Estado Global
         let state = {
             userLocation: null,
             lastFetchLocation: null,
@@ -57,7 +54,6 @@
             geoWatchId: null
         };
 
-        // --- INICIALIZACIÓN ---
         document.addEventListener('DOMContentLoaded', () => {
             checkSession();
             initListeners();
@@ -65,58 +61,49 @@
         });
 
         function initListeners() {
-            // Navegación y UI
             on('btn-logout', 'click', logout);
             on('btn-profile', 'click', openProfile);
-            on('btn-refresh', 'click', () => { state.lastFetchLocation = null; fetchPosts(); vibrate(20); });
+            on('btn-refresh', 'click', () => { state.lastFetchLocation = null; fetchPosts(); });
             
-            // Slider
             const slider = document.getElementById('rangeSlider');
             if(slider) {
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    // Actualización visual local inmediata
                     renderPostsSmart(state.loadedPosts);
                 });
-                // Fetch real al soltar el slider
-                slider.addEventListener('change', () => {
-                    state.lastFetchLocation = null; 
-                    fetchPosts();
-                });
+                slider.addEventListener('change', fetchPosts);
             }
 
-            // Crear Post
             on('fab-add', 'click', () => toggleModal('modal-new-post', true));
             on('btn-close-post', 'click', () => toggleModal('modal-new-post', false));
             on('btn-publish', 'click', publishPost);
-            
-            // Auth
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Filtros
-            document.querySelectorAll('.filter-chip').forEach(chip => {
-                chip.addEventListener('click', (e) => {
-                    // UI Update
-                    document.querySelectorAll('.filter-chip').forEach(c => {
-                        c.classList.remove('bg-brand-600', 'text-white');
-                        c.classList.add('bg-white', 'text-gray-600');
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    document.querySelectorAll('.filter-tab').forEach(c => {
+                        c.classList.remove('text-black', 'border-black');
+                        c.classList.add('text-gray-400', 'border-transparent');
                     });
-                    e.target.classList.remove('bg-white', 'text-gray-600');
-                    e.target.classList.add('bg-brand-600', 'text-white');
+                    e.target.classList.remove('text-gray-400', 'border-transparent');
+                    e.target.classList.add('text-black', 'border-black');
                     
-                    // Logic Update
                     state.activeFilter = e.target.dataset.filter;
                     renderPostsSmart(state.loadedPosts);
-                    vibrate(10);
                 });
             });
 
-            // Categoría en Nuevo Post
-            document.querySelectorAll('.cat-option').forEach(opt => {
+            document.querySelectorAll('.cat-radio').forEach(opt => {
                 opt.addEventListener('click', (e) => {
-                    document.querySelectorAll('.cat-option').forEach(c => c.classList.remove('ring-2', 'ring-brand-500', 'bg-brand-50'));
-                    e.currentTarget.classList.add('ring-2', 'ring-brand-500', 'bg-brand-50');
+                    // Reset visual state
+                    document.querySelectorAll('.cat-radio').forEach(c => {
+                        c.classList.remove('bg-black', 'text-white');
+                        c.classList.add('bg-gray-100', 'text-gray-600');
+                    });
+                    // Active state
+                    e.currentTarget.classList.remove('bg-gray-100', 'text-gray-600');
+                    e.currentTarget.classList.add('bg-black', 'text-white');
                     document.getElementById('post-category').value = e.currentTarget.dataset.cat;
                 });
             });
@@ -127,11 +114,6 @@
             if(el) el.addEventListener(evt, handler);
         }
 
-        function vibrate(pattern = 50) {
-            if (navigator.vibrate) navigator.vibrate(pattern);
-        }
-
-        // --- AUTH ---
         function checkSession() {
             try {
                 state.authToken = localStorage.getItem('whispr_token');
@@ -152,19 +134,11 @@
             startLiveTracking();
         }
 
-        // ¡AQUÍ ESTABA EL ERROR! Esta función faltaba en la versión anterior
         function updateProfileUI() {
-            // Actualizar botón de perfil en el header
             const headerAvatar = document.getElementById('header-avatar-text');
-            if(headerAvatar && state.pseudonym) {
-                headerAvatar.innerText = state.pseudonym.charAt(0).toUpperCase();
-            }
-            
-            // Actualizar input del modal de perfil
+            if(headerAvatar && state.pseudonym) headerAvatar.innerText = state.pseudonym.charAt(0).toUpperCase();
             const profileInput = document.getElementById('prof-pseudo');
-            if(profileInput && state.pseudonym) {
-                profileInput.value = state.pseudonym;
-            }
+            if(profileInput && state.pseudonym) profileInput.value = state.pseudonym;
         }
 
         async function handleAuthSubmit() {
@@ -173,9 +147,7 @@
             const btn = document.getElementById('auth-submit');
             
             if(!userIn || !passIn) return alert("Faltan datos");
-            
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
 
             try {
                 const mode = document.getElementById('auth-mode').value;
@@ -189,16 +161,14 @@
 
                 state.authToken = data.token;
                 state.currentUser = data.username;
-                state.pseudonym = data.username; // Default
+                state.pseudonym = data.username; 
                 localStorage.setItem('whispr_token', data.token);
                 localStorage.setItem('whispr_username', data.username);
-                
                 initApp();
             } catch(e) {
                 alert(e.message);
             } finally {
                 btn.disabled = false;
-                btn.innerText = "Entrar";
             }
         }
 
@@ -207,55 +177,38 @@
             location.reload();
         }
 
-        // --- GEO ---
         function startLiveTracking() {
-            if(!navigator.geolocation) return alert("GPS requerido");
-            
+            if(!navigator.geolocation) return;
             document.getElementById('gps-loading').classList.remove('hidden');
-            
             state.geoWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     document.getElementById('gps-loading').classList.add('hidden');
-                    document.getElementById('status-text').innerText = "En línea";
-                    
-                    // Lógica de movimiento (8m) para evitar peticiones constantes
-                    // Pero actualizamos la UI visualmente siempre
                     if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 8) {
                         fetchPosts();
                     } else {
                         renderPostsSmart(state.loadedPosts);
                     }
                 },
-                (err) => {
-                    document.getElementById('status-text').innerText = "GPS Perdido";
-                },
+                (err) => console.warn(err),
                 { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
             );
         }
 
-        // --- DATA ---
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
-            
             document.getElementById('btn-refresh').classList.add('animate-spin');
-            
             try {
                 const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.range}`, {
                     headers: { 'Authorization': `Bearer ${state.authToken}` }
                 });
                 if(res.status === 401) return logout();
-                
                 const posts = await res.json();
                 state.loadedPosts = posts;
                 state.lastFetchLocation = {...state.userLocation};
-                
-                if(posts.length > 0 && document.hidden) sendNotification(`Hay ${posts.length} secretos cerca de ti`);
-
+                if(posts.length > 0 && document.hidden) sendNotification(`Hay ${posts.length} secretos cerca.`);
                 renderPostsSmart(posts);
-            } catch(e) {
-                console.error(e);
-            } finally {
+            } catch(e) { console.error(e); } finally {
                 document.getElementById('btn-refresh').classList.remove('animate-spin');
             }
         }
@@ -264,46 +217,30 @@
             const feed = document.getElementById('feed-container');
             if(!feed) return;
 
-            // 1. Filtrar (Rango, Categoría, Bloqueados)
             let filtered = posts.filter(p => {
-                if(state.userLocation) {
-                    p.distance = getDist(state.userLocation, p);
-                }
+                p.distance = getDist(state.userLocation, p);
                 if(p.distance > state.range) return false;
                 if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
                 if(state.blockedUsers.includes(p.author)) return false;
                 return true;
             });
 
-            // 2. Ordenar por distancia (default)
             filtered.sort((a,b) => a.distance - b.distance);
-
-            document.getElementById('count-badge').innerText = filtered.length;
-
+            
             if(filtered.length === 0) {
-                // Solo mostrar mensaje vacío si el feed ya estaba vacío o si hemos limpiado todo
-                if(feed.children.length === 0 || feed.querySelector('#empty-msg')) {
-                    feed.innerHTML = `<div id="empty-msg" class="text-center py-20 text-gray-400 animate-pop"><i class="fas fa-wind text-4xl mb-3"></i><p>Nada por aquí...</p></div>`;
-                } else {
-                    // Si había cosas y ahora no, limpiamos
-                    feed.innerHTML = `<div id="empty-msg" class="text-center py-20 text-gray-400 animate-pop"><i class="fas fa-wind text-4xl mb-3"></i><p>Nada por aquí...</p></div>`;
+                if(!document.getElementById('empty-msg')) {
+                    feed.innerHTML = `<div id="empty-msg" class="flex flex-col items-center justify-center h-64 text-gray-300"><i class="fas fa-wind text-3xl mb-2"></i><p class="text-sm">Silencio en este radio.</p></div>`;
                 }
                 return;
             }
-            
-            // Limpiar mensaje vacío si existe
             const empty = document.getElementById('empty-msg');
             if(empty) empty.remove();
 
-            // 3. Diffing simple para evitar parpadeo
             const currentIds = new Set(filtered.map(p => p.id));
-            
-            // Eliminar viejos
             Array.from(feed.children).forEach(c => {
                 if(c.dataset.id && !currentIds.has(c.dataset.id)) c.remove();
             });
 
-            // Añadir nuevos o actualizar existentes
             filtered.forEach(p => {
                 let card = document.getElementById(`post-${p.id}`);
                 if(card) {
@@ -319,100 +256,67 @@
             const div = document.createElement('div');
             div.id = `post-${p.id}`;
             div.dataset.id = p.id;
-            div.className = "bg-white rounded-3xl p-5 mb-4 shadow-sm border border-gray-100 animate-pop relative overflow-hidden group";
+            div.className = "bg-white p-5 mb-3 border-b border-gray-100 last:border-0 relative group animate-fade-in";
             
             const cat = CATEGORIES[p.category] || CATEGORIES['gossip'];
-            const popular = (p.reactions?.fire?.length || 0) > 5; // Medalla
+            const popular = (p.reactions?.fire?.length || 0) > 5;
 
             div.innerHTML = `
-                <div class="flex justify-between items-start mb-3">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-lg font-bold text-gray-500">
-                            ${p.pseudonym ? p.pseudonym[0].toUpperCase() : '?'}
-                        </div>
-                        <div>
-                            <div class="flex items-center gap-1">
-                                <span class="font-bold text-gray-900 text-sm">${escapeHtml(p.pseudonym || 'Anónimo')}</span>
-                                ${popular ? '<i class="fas fa-medal text-yellow-500" title="Popular"></i>' : ''}
-                            </div>
-                            <div class="text-xs text-gray-400 flex items-center gap-2">
-                                <span>${getTimeAgo(p.timestamp)}</span>
-                                <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${cat.color}">${cat.label}</span>
-                            </div>
-                        </div>
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-sm text-gray-900">${escapeHtml(p.pseudonym || 'Anónimo')}</span>
+                        ${popular ? '<i class="fas fa-check-circle text-accent-500 text-xs"></i>' : ''}
+                        <span class="text-gray-300 text-xs">•</span>
+                        <span class="text-xs text-gray-400">${getTimeAgo(p.timestamp)}</span>
                     </div>
-                    <div class="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-1 rounded-lg dist-label">
-                        ${formatDistance(p.distance)}
-                    </div>
+                    <span class="text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded dist-label">${formatDistance(p.distance)}</span>
                 </div>
 
-                <p class="text-gray-800 text-[15px] leading-relaxed mb-4 break-words post-text font-medium">${escapeHtml(p.text)}</p>
+                <div class="mb-3">
+                    <span class="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded mb-1 ${cat.color}">${cat.label}</span>
+                    <p class="text-gray-800 text-[15px] leading-snug break-words whitespace-pre-line">${escapeHtml(p.text)}</p>
+                </div>
 
-                <div class="flex items-center justify-between border-t border-gray-50 pt-3">
-                    <div class="flex gap-1">
-                        ${renderReactionBtn(p, 'like', '👍')}
-                        ${renderReactionBtn(p, 'dislike', '👎')}
-                        ${renderReactionBtn(p, 'fire', '🔥')}
+                <div class="flex items-center justify-between">
+                    <div class="flex gap-4">
+                        ${renderReactionBtn(p, 'like', 'fa-thumbs-up')}
+                        ${renderReactionBtn(p, 'fire', 'fa-fire')}
+                        ${renderReactionBtn(p, 'dislike', 'fa-thumbs-down')}
                     </div>
-                    
-                    <div class="flex gap-3 text-gray-400">
-                        <button onclick="sharePost('${p.id}')" class="hover:text-brand-600 transition"><i class="fas fa-share-alt"></i></button>
-                        <button onclick="showOptions('${p.id}', '${p.author}')" class="hover:text-gray-900"><i class="fas fa-ellipsis-h"></i></button>
-                    </div>
+                    <button onclick="showOptions('${p.id}', '${p.author}')" class="text-gray-300 hover:text-black"><i class="fas fa-ellipsis-h"></i></button>
                 </div>
             `;
             return div;
         }
 
-        function renderReactionBtn(p, type, emoji) {
+        function renderReactionBtn(p, type, icon) {
             const count = (p.reactions && p.reactions[type] ? p.reactions[type].length : 0);
             const active = (p.reactions && p.reactions[type] && p.reactions[type].includes(state.currentUser));
-            
-            // Usamos clases dinámicas en lugar de onclick inline complejo
+            const color = active ? (type === 'fire' ? 'text-orange-500' : 'text-black') : 'text-gray-300';
             return `
-                <button onclick="react('${p.id}', '${type}')" class="btn-react flex items-center gap-1 px-2 py-1 rounded-full transition hover:bg-gray-100 ${active ? 'bg-brand-50 border border-brand-200 scale-105' : ''}" data-type="${type}">
-                    <span class="text-lg filter ${active ? '' : 'grayscale opacity-60'}">${emoji}</span>
-                    <span class="text-xs font-bold text-gray-600 count-label">${count > 0 ? count : ''}</span>
+                <button onclick="react('${p.id}', '${type}')" class="flex items-center gap-1.5 group">
+                    <i class="fas ${icon} ${color} group-hover:scale-110 transition-transform"></i>
+                    <span class="text-xs font-bold ${active ? 'text-black' : 'text-gray-400'} count-${type}">${count > 0 ? count : ''}</span>
                 </button>
             `;
         }
 
         function updateCard(card, p) {
-            // Actualizar distancia
             card.querySelector('.dist-label').innerText = formatDistance(p.distance);
-            
-            // Actualizar botones de reacción
-            const buttons = card.querySelectorAll('.btn-react');
-            buttons.forEach(btn => {
-                const type = btn.dataset.type;
+            ['like', 'dislike', 'fire'].forEach(type => {
                 const count = p.reactions?.[type]?.length || 0;
-                const active = p.reactions?.[type]?.includes(state.currentUser);
-                
-                // Actualizar contador
-                const label = btn.querySelector('.count-label');
-                if(label) label.innerText = count > 0 ? count : '';
-                
-                // Actualizar estilos visuales
-                const icon = btn.querySelector('span.text-lg');
-                if(active) {
-                    btn.classList.add('bg-brand-50', 'border', 'border-brand-200', 'scale-105');
-                    icon.classList.remove('grayscale', 'opacity-60');
-                } else {
-                    btn.classList.remove('bg-brand-50', 'border', 'border-brand-200', 'scale-105');
-                    icon.classList.add('grayscale', 'opacity-60');
-                }
+                const span = card.querySelector(`.count-${type}`);
+                if(span) span.innerText = count > 0 ? count : '';
             });
         }
 
         async function react(postId, type) {
-            vibrate(30);
             try {
                 await fetch(`${WORKER_URL}/api/posts/react`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ postId, type })
                 });
-                // Recargar para ver cambios
                 fetchPosts();
             } catch(e) {}
         }
@@ -420,9 +324,9 @@
         async function publishPost() {
             const text = document.getElementById('post-input').value.trim();
             const cat = document.getElementById('post-category').value;
-            const duration = document.getElementById('post-duration').value; // hours
+            const duration = document.getElementById('post-duration').value; 
 
-            if(!text || text.length > 280) return alert("Mensaje inválido");
+            if(!text || text.length > 280) return alert("Escribe algo (max 280).");
 
             const btn = document.getElementById('btn-publish');
             btn.disabled = true;
@@ -444,7 +348,6 @@
                 document.getElementById('post-input').value = '';
                 state.lastFetchLocation = null;
                 fetchPosts();
-                vibrate(100);
             } catch(e) {
                 alert(e.message);
             } finally {
@@ -452,9 +355,7 @@
             }
         }
 
-        // --- EXTRAS ---
         function openProfile() {
-            // Calcular stats locales
             const myPosts = state.loadedPosts.filter(p => p.author === state.currentUser).length;
             let totalReactions = 0;
             state.loadedPosts.filter(p => p.author === state.currentUser).forEach(p => {
@@ -478,44 +379,16 @@
             toggleModal('modal-profile', false);
         }
 
-        async function sharePost(id) {
-            const card = document.getElementById(`post-${id}`);
-            if(!card) return;
-            
-            // Clonamos para limpiar botones antes de foto
-            const clone = card.cloneNode(true);
-            clone.querySelector('.border-t').remove(); // Quitar botones
-            clone.style.position = 'absolute';
-            clone.style.left = '-9999px';
-            clone.style.width = '350px';
-            document.body.appendChild(clone);
-
-            try {
-                const canvas = await html2canvas(clone, { scale: 2, backgroundColor: '#ffffff' });
-                canvas.toBlob(blob => {
-                    const file = new File([blob], "whispr_share.png", { type: "image/png" });
-                    if(navigator.share) {
-                        navigator.share({ files: [file], title: 'Secreto en Whispr', text: 'Mira lo que han dicho cerca de mí...' });
-                    } else {
-                        alert("Tu navegador no soporta compartir imágenes nativamente.");
-                    }
-                });
-            } catch(e) { console.error(e); }
-            document.body.removeChild(clone);
-        }
-
         function showOptions(postId, authorId) {
-            if(confirm("Opciones:\n\nAceptar: Reportar mensaje\nCancelar: Bloquear usuario")) {
-                // Reportar
+            if(confirm("Opciones:\n\nOk: Reportar\nCancelar: Bloquear")) {
                 fetch(`${WORKER_URL}/api/report`, { 
                     method: 'POST', 
                     headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
                     body: JSON.stringify({ postId, reason: 'offensive' })
                 });
-                alert("Reporte enviado.");
+                alert("Reportado.");
             } else {
-                // Bloquear
-                if(confirm(`¿Bloquear usuario?`)) {
+                if(confirm(`¿Bloquear?`)) {
                     state.blockedUsers.push(authorId);
                     localStorage.setItem('whispr_blocked', JSON.stringify(state.blockedUsers));
                     renderPostsSmart(state.loadedPosts); 
@@ -523,7 +396,6 @@
             }
         }
 
-        // --- UTILS ---
         function toggleModal(id, show) {
             const el = document.getElementById(id);
             if(show) el.classList.remove('hidden');
@@ -533,11 +405,11 @@
         function toggleAuthMode(mode) {
             const isLogin = mode === 'login';
             document.getElementById('auth-mode').value = mode;
-            document.getElementById('auth-title').innerText = isLogin ? 'Whispr' : 'Únete';
+            document.getElementById('auth-title').innerText = isLogin ? 'Whispr' : 'Crear cuenta';
             document.getElementById('auth-submit').innerText = isLogin ? 'Entrar' : 'Registrarse';
             document.getElementById('auth-toggle-text').innerHTML = isLogin 
-                ? '¿Nuevo? <button class="font-bold text-brand-600" onclick="toggleAuthMode(\'register\')">Regístrate</button>'
-                : '¿Tienes cuenta? <button class="font-bold text-brand-600" onclick="toggleAuthMode(\'login\')">Entra</button>';
+                ? '<span class="text-gray-400">¿No tienes cuenta?</span> <button class="font-medium text-black ml-1" onclick="toggleAuthMode(\'register\')">Regístrate</button>'
+                : '<span class="text-gray-400">¿Ya tienes cuenta?</span> <button class="font-medium text-black ml-1" onclick="toggleAuthMode(\'login\')">Entra</button>';
         }
 
         function getDist(p1, p2) {
@@ -552,152 +424,149 @@
         function escapeHtml(t) { return t ? t.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])) : ''; }
         function getTimeAgo(d) {
             const s = Math.floor((new Date() - new Date(d))/1000);
-            if(s<60) return 'ahora';
+            if(s<60) return '1m';
             if(s<3600) return Math.floor(s/60)+'m';
             if(s<86400) return Math.floor(s/3600)+'h';
             return Math.floor(s/86400)+'d';
         }
         
         function requestNotificationPermission() {
-            if ("Notification" in window && Notification.permission === "default") {
-                Notification.requestPermission();
-            }
+            if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
         }
         function sendNotification(msg) {
-            if("Notification" in window && Notification.permission === "granted") {
-                new Notification("Whispr", { body: msg });
-            }
+            if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg });
         }
     </script>
 </head>
-<body class="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden selection:bg-brand-200 selection:text-brand-900">
+<body class="bg-white text-black h-screen flex flex-col overflow-hidden font-sans antialiased">
 
-    <!-- HEADER -->
-    <header class="bg-white/90 backdrop-blur-md border-b border-gray-100 sticky top-0 z-30 px-4 py-3 flex justify-between items-center shadow-sm">
-        <div class="flex items-center gap-2">
-            <div class="w-8 h-8 bg-brand-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-500/30">
-                <i class="fas fa-ghost"></i>
-            </div>
-            <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Whispr</h1>
-        </div>
-        <div class="flex items-center gap-3">
-            <button id="btn-refresh" class="w-9 h-9 rounded-full bg-gray-50 text-gray-500 hover:text-brand-600 transition flex items-center justify-center"><i class="fas fa-sync-alt"></i></button>
-            <button id="btn-profile" class="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm">
+    <!-- HEADER: Minimalist -->
+    <header class="bg-white/95 backdrop-blur border-b border-gray-100 sticky top-0 z-30 px-5 py-3 flex justify-between items-center">
+        <h1 class="text-xl font-bold tracking-tight">Whispr.</h1>
+        <div class="flex items-center gap-4">
+            <button id="btn-refresh" class="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-black transition"><i class="fas fa-sync-alt text-sm"></i></button>
+            <div id="btn-profile" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center text-xs font-bold cursor-pointer">
                 <span id="header-avatar-text">?</span>
-            </button>
+            </div>
         </div>
     </header>
 
-    <!-- FILTERS -->
-    <div class="bg-white z-20 border-b border-gray-100">
-        <!-- Slider -->
-        <div class="px-4 py-2 flex justify-between items-center border-b border-gray-50">
-            <span class="text-xs font-bold text-gray-400 uppercase">Radio</span>
-            <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="w-24 accent-brand-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-            <span id="rangeValue" class="text-xs font-bold text-brand-600 w-10 text-right">500m</span>
-        </div>
-        <!-- Chips -->
-        <div class="flex gap-2 overflow-x-auto px-4 py-3 scrollbar-hide">
-            <button data-filter="all" class="filter-chip bg-brand-600 text-white px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Todos</button>
-            <button data-filter="gossip" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Confidencial</button>
-            <button data-filter="humor" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Humor</button>
-            <button data-filter="love" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Crush</button>
-            <button data-filter="promo" class="filter-chip bg-white text-gray-600 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition">Planes</button>
+    <!-- TABS DE FILTROS: Clean Scrolling List -->
+    <div class="bg-white z-20 pt-2 pb-0 border-b border-gray-100">
+        <div class="flex overflow-x-auto px-5 gap-6 no-scrollbar">
+            <button data-filter="all" class="filter-tab pb-3 text-sm font-medium text-black border-b-2 border-black whitespace-nowrap transition-colors">Todo</button>
+            <button data-filter="gossip" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Secretos</button>
+            <button data-filter="humor" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Humor</button>
+            <button data-filter="love" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Crush</button>
+            <button data-filter="idea" class="filter-tab pb-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-600 whitespace-nowrap transition-colors">Ideas</button>
         </div>
     </div>
 
     <!-- FEED -->
-    <main class="flex-1 overflow-y-auto p-4 pb-32 relative z-10" id="feed-container">
-        <!-- GPS Loading Overlay -->
-        <div id="gps-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-50">
-            <i class="fas fa-satellite-dish fa-spin text-3xl text-brand-500 mb-3"></i>
+    <main class="flex-1 overflow-y-auto relative z-10 bg-white" id="feed-container">
+        <!-- GPS Overlay -->
+        <div id="gps-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-white z-50">
+            <div class="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mb-4"></div>
             <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Localizando...</p>
         </div>
     </main>
 
-    <!-- FLOATING STATUS -->
-    <div class="fixed bottom-6 left-6 z-40 pointer-events-none">
-        <div class="bg-gray-900/90 backdrop-blur text-white px-3 py-1.5 rounded-full shadow-xl flex items-center gap-2 text-[10px] font-bold border border-white/10">
-            <div class="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-            <span id="status-text">Offline</span>
-            <span class="bg-white/20 px-1.5 rounded" id="count-badge">0</span>
-        </div>
+    <!-- BOTTOM BAR: Range Slider Compact -->
+    <div class="bg-white/95 backdrop-blur border-t border-gray-100 px-6 py-3 flex items-center gap-4 z-20">
+        <span class="text-[10px] font-bold text-gray-400 uppercase w-8">Radio</span>
+        <input type="range" min="50" max="1000" step="50" value="500" id="rangeSlider" class="flex-1 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black">
+        <span id="rangeValue" class="text-xs font-bold text-black w-10 text-right">500m</span>
     </div>
 
-    <!-- FAB (Fixed & Elevated - Arreglado posición) -->
-    <button id="fab-add" class="fixed bottom-24 right-6 bg-brand-600 text-white w-14 h-14 rounded-2xl shadow-xl shadow-brand-600/40 flex items-center justify-center text-xl hover:scale-110 hover:rotate-90 transition-all duration-300 z-50">
+    <!-- FAB: Floating Button -->
+    <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-float flex items-center justify-center text-xl hover:scale-105 transition-transform z-40">
         <i class="fas fa-plus"></i>
     </button>
 
-    <!-- MODALS -->
-    
-    <!-- Auth -->
-    <div id="modal-auth" class="hidden fixed inset-0 z-[70] bg-white flex flex-col items-center justify-center p-8 animate-fade">
-        <div class="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center text-white text-3xl shadow-2xl mb-6"><i class="fas fa-ghost"></i></div>
-        <h2 id="auth-title" class="text-3xl font-black text-gray-900 mb-2">Whispr</h2>
-        <p class="text-gray-500 text-center mb-8 text-sm">La red social secreta de tu barrio.</p>
-        <input type="hidden" id="auth-mode" value="login">
-        <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-xl p-4 mb-3 font-bold focus:ring-2 ring-brand-500" placeholder="Usuario" autocomplete="off">
-        <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl p-4 mb-6 font-bold focus:ring-2 ring-brand-500" placeholder="Contraseña">
-        <button id="auth-submit" class="w-full bg-gray-900 text-white py-4 rounded-xl font-bold text-lg shadow-lg">Entrar</button>
-        <p id="auth-toggle-text" class="mt-6 text-sm text-gray-500">¿Nuevo? <button class="text-brand-600 font-bold" onclick="toggleAuthMode('register')">Regístrate</button></p>
-        <p class="mt-auto text-[10px] text-gray-400 text-center max-w-xs">Al entrar aceptas que tu ubicación aproximada se usará para mostrarte contenido.</p>
-    </div>
-
-    <!-- New Post -->
-    <div id="modal-new-post" class="hidden fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-        <div class="bg-white w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl p-6 animate-slide-up shadow-2xl">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold">Nuevo Secreto</h3>
-                <button id="btn-close-post" class="text-gray-400 hover:text-gray-900"><i class="fas fa-times text-xl"></i></button>
+    <!-- MODAL: NEW POST (Clean Design) -->
+    <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 animate-fade-in-up shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-sm font-bold text-gray-400 uppercase">Nuevo Whispr</span>
+                <button id="btn-close-post" class="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center hover:bg-gray-100"><i class="fas fa-times text-gray-500"></i></button>
             </div>
             
-            <textarea id="post-input" rows="4" class="w-full text-lg font-medium placeholder-gray-400 border-none focus:ring-0 resize-none p-0 mb-4" placeholder="Escribe algo interesante..."></textarea>
+            <textarea id="post-input" rows="4" class="w-full text-lg placeholder-gray-300 border-none focus:ring-0 resize-none p-0 mb-6" placeholder="¿Qué está pasando?"></textarea>
             
-            <!-- Category Selector -->
-            <div class="flex gap-3 overflow-x-auto pb-4 mb-2 no-scrollbar">
+            <!-- Categorías: Clean Pills -->
+            <label class="block text-xs font-bold text-gray-400 mb-2 uppercase">Categoría</label>
+            <div class="flex flex-wrap gap-2 mb-6">
                 <input type="hidden" id="post-category" value="gossip">
-                <button data-cat="gossip" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-purple-50 text-purple-600 ring-2 ring-brand-500"><i class="fas fa-user-secret mr-1"></i> Confidencial</button>
-                <button data-cat="humor" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-grin-squint mr-1"></i> Humor</button>
-                <button data-cat="love" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-heart mr-1"></i> Crush</button>
-                <button data-cat="promo" class="cat-option flex-shrink-0 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"><i class="fas fa-bullhorn mr-1"></i> Promo</button>
+                <button data-cat="gossip" class="cat-radio px-3 py-1.5 rounded-full bg-black text-white text-xs font-bold border border-transparent transition-colors">Secreto</button>
+                <button data-cat="humor" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Humor</button>
+                <button data-cat="love" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Crush</button>
+                <button data-cat="idea" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Idea</button>
+                <button data-cat="promo" class="cat-radio px-3 py-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-transparent hover:bg-gray-200 transition-colors">Plan</button>
             </div>
 
-            <div class="flex justify-between items-center border-t border-gray-100 pt-4">
-                <select id="post-duration" class="text-xs font-bold text-gray-500 bg-gray-100 rounded-lg px-2 py-1 border-0">
-                    <option value="1">Borrar en 1 hora</option>
-                    <option value="24" selected>Borrar en 24 horas</option>
-                </select>
-                <button id="btn-publish" class="bg-brand-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-brand-700 transition">Publicar</button>
+            <div class="flex items-center justify-between border-t border-gray-50 pt-4">
+                <div class="flex items-center gap-2">
+                    <i class="far fa-clock text-gray-400"></i>
+                    <select id="post-duration" class="text-xs font-bold text-gray-600 bg-transparent border-none focus:ring-0 p-0 cursor-pointer">
+                        <option value="1">1 Hora</option>
+                        <option value="24" selected>24 Horas</option>
+                    </select>
+                </div>
+                <button id="btn-publish" class="bg-black text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg hover:bg-gray-900 transition-transform active:scale-95">Publicar</button>
             </div>
         </div>
     </div>
 
-    <!-- Profile -->
-    <div id="modal-profile" class="hidden fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-6">
-        <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center animate-pop">
-            <div class="w-20 h-20 bg-gray-900 rounded-full mx-auto mb-4 flex items-center justify-center text-white text-2xl shadow-xl"><i class="fas fa-user-astronaut"></i></div>
-            <h3 class="text-lg font-bold text-gray-900 mb-1">Mi Perfil</h3>
+    <!-- MODAL: PROFILE -->
+    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/20 backdrop-blur-sm flex items-center justify-center p-6">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-6 text-center shadow-2xl animate-fade-in-up">
+            <div class="w-20 h-20 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-4 border-white shadow-lg">
+                <i class="fas fa-user"></i>
+            </div>
             
-            <div class="bg-gray-50 rounded-xl p-3 mb-4 flex justify-center gap-6">
-                <div class="text-center">
-                    <div class="text-xl font-black text-brand-600" id="prof-post-count">0</div>
-                    <div class="text-[10px] font-bold text-gray-400 uppercase">Posts</div>
+            <div class="flex justify-center gap-8 mb-6">
+                <div>
+                    <span class="block text-xl font-bold text-black" id="prof-post-count">0</span>
+                    <span class="text-[10px] font-bold text-gray-400 uppercase">Posts</span>
                 </div>
-                <div class="text-center">
-                    <div class="text-xl font-black text-rose-500" id="prof-react-count">0</div>
-                    <div class="text-[10px] font-bold text-gray-400 uppercase">Karma</div>
+                <div>
+                    <span class="block text-xl font-bold text-accent-600" id="prof-react-count">0</span>
+                    <span class="text-[10px] font-bold text-gray-400 uppercase">Karma</span>
                 </div>
             </div>
 
-            <label class="block text-left text-xs font-bold text-gray-400 mb-1 ml-1">PSEUDÓNIMO PÚBLICO</label>
-            <input id="prof-pseudo" class="w-full bg-gray-100 border-0 rounded-xl px-3 py-2 mb-6 font-bold text-sm text-gray-800">
+            <input id="prof-pseudo" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-800 placeholder-gray-400 focus:ring-2 ring-black" placeholder="Tu Alias">
 
-            <button onclick="saveProfile()" class="w-full bg-black text-white py-3 rounded-xl font-bold mb-2">Guardar</button>
-            <button id="btn-logout" class="w-full text-rose-500 py-2 font-bold text-sm">Cerrar Sesión</button>
-            <button onclick="toggleModal('modal-profile', false)" class="mt-2 text-gray-400 text-xs">Cancelar</button>
+            <button onclick="saveProfile()" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm mb-2">Guardar Cambios</button>
+            <button id="btn-logout" class="w-full text-red-500 py-2 font-bold text-xs">Cerrar Sesión</button>
+            <button onclick="toggleModal('modal-profile', false)" class="mt-4 text-gray-400 text-xs underline">Cancelar</button>
         </div>
     </div>
+
+    <!-- MODAL: AUTH -->
+    <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white flex flex-col items-center justify-center p-8">
+        <h2 id="auth-title" class="text-4xl font-black tracking-tighter mb-2">Whispr.</h2>
+        <p class="text-gray-400 text-center mb-10 text-sm">Lo que pasa aquí, se queda aquí.</p>
+        
+        <input type="hidden" id="auth-mode" value="login">
+        <div class="w-full max-w-xs space-y-3">
+            <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 font-medium text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Usuario" autocomplete="off">
+            <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 font-medium text-sm focus:ring-2 ring-black placeholder-gray-400" placeholder="Contraseña">
+            <button id="auth-submit" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm shadow-lg mt-4">Entrar</button>
+        </div>
+
+        <p id="auth-toggle-text" class="mt-8 text-sm text-gray-500">
+            <span class="text-gray-400">¿Nuevo?</span> 
+            <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button>
+        </p>
+    </div>
+
+    <style>
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 
 </body>
 </html>
