@@ -3,41 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#000000"> <!-- Color de la barra de estado -->
+    <meta name="theme-color" content="#ffffff">
     
-    <!-- Configuración CSP: Permitimos Leaflet y OpenStreetMap -->
+    <!-- CSP: Seguridad para mapas, audio y backend -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://html2canvas.hertzen.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; font-src https://cdnjs.cloudflare.com https://fonts.gstatic.com; connect-src 'self' https://whispr.logise1123.workers.dev; img-src 'self' data: blob: https://unpkg.com https://*.tile.openstreetmap.org; media-src 'self' data: blob:;">
     
     <title>Whispr</title>
 
-    <!-- ENLACE AL ARCHIVO MANIFEST.JSON -->
-    <link rel="manifest" href="manifest.json">
-    
-    <!-- Tailwind & Fonts -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Herramientas -->
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     
-    <!-- LEAFLET (MAPA) -->
+    <!-- Leaflet (Mapas) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Leaflet MarkerCluster -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css"/>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: { 
-                        brand: { 500: '#111111', 600: '#000000' },
-                        accent: { 50: '#f5f3ff', 100: '#ede9fe', 500: '#8b5cf6', 600: '#7c3aed' }
-                    },
+                    colors: { brand: { 500: '#111111', 600: '#000000' } },
                     height: { 'screen-dvh': '100dvh' }
                 }
             }
@@ -45,23 +36,18 @@
     </script>
 
     <style>
-        /* Fixes visuales para móvil */
+        /* Ajustes Móviles */
         body { padding-bottom: env(safe-area-inset-bottom); }
         .pb-safe { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
         
-        /* Mapa a pantalla completa dentro de su contenedor */
+        /* Mapa Full Screen */
         #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
-        #map-view { width: 100%; height: 100%; background: #f8f9fa; }
+        #map-view { width: 100%; height: 100%; }
         
-        /* Personalización Cluster Leaflet */
-        .custom-cluster-icon div { 
-            width: 36px; height: 36px; line-height: 36px; 
-            text-align: center; background-color: #000; color: #fff; 
-            border-radius: 50%; font-weight: bold; border: 2px solid #fff; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
+        /* Clusters Personalizados */
+        .custom-cluster-icon div { width: 30px; height: 30px; line-height: 30px; text-align: center; background: black; color: white; border-radius: 50%; border: 2px solid white; font-weight: bold; }
         
-        /* Audio Pulse */
+        /* Animación Grabación */
         .recording-pulse { animation: pulse-red 1.5s infinite; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
         
@@ -70,15 +56,13 @@
     </style>
 
     <script>
-        // --- Lógica principal de la aplicación ---
-
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
         const CATEGORIES = {
-            gossip: { label: 'Secreto', icon: 'fa-mask', color: 'bg-purple-100 text-purple-700' },
-            humor: { label: 'Humor', icon: 'fa-laugh', color: 'bg-yellow-100 text-yellow-700' },
-            love: { label: 'Crush', icon: 'fa-heart', color: 'bg-rose-100 text-rose-700' },
-            idea: { label: 'Idea', icon: 'fa-lightbulb', color: 'bg-blue-100 text-blue-700' },
-            promo: { label: 'Plan', icon: 'fa-ticket-alt', color: 'bg-green-100 text-green-700' }
+            gossip: { label: 'Secreto', color: 'bg-purple-100 text-purple-700' },
+            humor: { label: 'Humor', color: 'bg-yellow-100 text-yellow-700' },
+            love: { label: 'Crush', color: 'bg-rose-100 text-rose-700' },
+            idea: { label: 'Idea', color: 'bg-blue-100 text-blue-700' },
+            promo: { label: 'Plan', color: 'bg-green-100 text-green-700' }
         };
 
         let state = {
@@ -98,8 +82,9 @@
             audioChunks: [],
             audioBlobBase64: null,
             isRecording: false,
-            currentPostId: null,
-            audioMimeType: null // Para almacenar el tipo MIME detectado
+            recordingInterval: null,
+            recordingStart: 0,
+            currentPostId: null
         };
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -121,7 +106,7 @@
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    if(state.currentTab === 'feed') updateDistancesOnly(); // Update instantáneo
+                    if(state.currentTab === 'feed') updateDistancesOnly(); // ¡Sin lag!
                 });
                 slider.addEventListener('change', () => { state.lastFetchLocation = null; fetchPosts(); });
             }
@@ -131,7 +116,7 @@
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Audio
+            // Audio (Manejo táctil robusto)
             const btnRecord = document.getElementById('btn-record');
             if(btnRecord){
                 btnRecord.addEventListener('mousedown', startRecording);
@@ -178,6 +163,7 @@
             if(el) el.addEventListener(evt, handler);
         }
 
+        // --- AUTH ---
         function checkSession() {
             try {
                 state.authToken = localStorage.getItem('whispr_token');
@@ -247,10 +233,10 @@
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     document.getElementById('gps-loading').classList.add('hidden');
                     
-                    // 1. Update Visual Inmediato (Sin Recarga)
+                    // 1. Update Ultrarrápido (Solo texto de metros)
                     updateDistancesOnly(); 
 
-                    // 2. Fetch si nos movemos > 20m
+                    // 2. Fetch Inteligente (>20m)
                     if (!state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 20) {
                         fetchPosts();
                     } 
@@ -271,8 +257,10 @@
                     const dist = getDist(state.userLocation, {lat, lng});
                     const label = card.querySelector('.dist-label');
                     if(label) label.innerText = formatDistance(dist);
-                    // Ocultar si sale de rango
-                    card.style.display = (dist > state.range) ? 'none' : 'block';
+                    
+                    // Ocultar si sale del rango (sin borrar del DOM para velocidad)
+                    if(dist > state.range) card.style.display = 'none';
+                    else card.style.display = 'block';
                 }
             });
         }
@@ -295,13 +283,11 @@
                 feedContainer.classList.add('hidden');
                 mapContainer.classList.remove('hidden');
                 
-                // Force Leaflet redraw
-                requestAnimationFrame(() => {
+                // Hack para que Leaflet calcule el tamaño al hacerse visible
+                setTimeout(() => {
                     initMap();
-                    if(state.mapInstance) {
-                        state.mapInstance.invalidateSize();
-                    }
-                });
+                    if(state.mapInstance) state.mapInstance.invalidateSize();
+                }, 200);
             }
         }
 
@@ -310,7 +296,7 @@
             if (!state.userLocation) return;
 
             state.mapInstance = L.map('map-view', {
-                zoomControl: false, // UI más limpia
+                zoomControl: false, 
                 attributionControl: false
             }).setView([state.userLocation.lat, state.userLocation.lng], 15);
             
@@ -322,7 +308,7 @@
                 showCoverageOnHover: false,
                 iconCreateFunction: function(cluster) {
                     return L.divIcon({ 
-                        html: `<div class="cluster-content">${cluster.getChildCount()}</div>`, 
+                        html: `<div class="bg-black text-white w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg border-2 border-white">${cluster.getChildCount()}</div>`, 
                         className: 'custom-cluster-icon', 
                         iconSize: L.point(40, 40) 
                     });
@@ -340,22 +326,19 @@
 
             filtered.forEach(p => {
                 const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
-                
-                // Crear icono personalizado simple
-                const markerIcon = L.divIcon({
-                    html: `<i class="fas fa-map-marker-alt text-3xl drop-shadow-lg" style="color: #000;"></i>`,
-                    className: 'bg-transparent border-none',
-                    iconSize: [30, 42],
-                    iconAnchor: [15, 42],
-                    popupAnchor: [0, -40]
+                const marker = L.marker([p.lat, p.lng], {
+                    icon: L.divIcon({
+                        html: `<div class="text-2xl drop-shadow-md text-black"><i class="fas fa-map-marker-alt"></i></div>`,
+                        className: 'bg-transparent',
+                        iconSize: [30, 40],
+                        iconAnchor: [15, 40]
+                    })
                 });
 
-                const marker = L.marker([p.lat, p.lng], { icon: markerIcon });
-
-                let audioHtml = p.audio ? `<div class="mt-2"><i class="fas fa-microphone text-gray-400"></i> Nota de voz</div>` : '';
+                let audioHtml = p.audio ? `<div class="mt-2 text-xs bg-gray-50 p-1 rounded"><i class="fas fa-microphone"></i> Audio</div>` : '';
 
                 const popupContent = `
-                    <div class="font-sans w-[220px]">
+                    <div class="font-sans min-w-[200px]">
                         <div class="flex items-center gap-2 mb-1 border-b border-gray-100 pb-1">
                             <span class="font-bold text-sm">${escapeHtml(p.pseudonym)}</span>
                             <span class="text-xs text-gray-400 ml-auto">${getTimeAgo(p.timestamp)}</span>
@@ -370,61 +353,54 @@
             });
         }
 
-        // --- AUDIO ---
+        // --- AUDIO RECORDER (CON TIMER) ---
         async function startRecording() {
-            if (!navigator.mediaDevices) return alert("Audio no soportado");
+            if (!navigator.mediaDevices) return alert("Permiso de audio denegado");
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // --- Corrección del MIME Type ---
-                let mimeType = 'audio/webm;codecs=opus';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/mp4';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                         mimeType = 'audio/webm'; // Fallback simple
-                    }
-                }
-                state.audioMimeType = mimeType;
-                // --- Fin Corrección ---
+                let mimeType = 'audio/webm';
+                if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/mp4'; 
 
-                state.mediaRecorder = new MediaRecorder(stream, { mimeType: state.audioMimeType });
+                state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
                 state.audioChunks = [];
                 state.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.audioChunks.push(e.data); };
                 state.mediaRecorder.onstop = processAudio;
-                
-                // Usamos un buffer de 1000ms para asegurar que haya datos de audio válidos.
-                state.mediaRecorder.start(1000); 
+                state.mediaRecorder.start(100); 
                 state.isRecording = true;
                 
+                // Timer Logic
+                state.recordingStart = Date.now();
+                updateTimer();
+                state.recordingInterval = setInterval(updateTimer, 1000);
+
                 const btn = document.getElementById('btn-record');
                 btn.classList.add('bg-red-500', 'recording-pulse', 'text-white');
                 btn.classList.remove('bg-gray-100', 'text-gray-500');
-                document.getElementById('audio-status').innerText = "Grabando...";
                 document.getElementById('audio-status').classList.remove('hidden');
             } catch(err) { alert("Error micrófono: " + err.message); }
+        }
+
+        function updateTimer() {
+            const diff = Math.floor((Date.now() - state.recordingStart) / 1000);
+            const m = Math.floor(diff / 60);
+            const s = diff % 60;
+            document.getElementById('audio-status').innerText = `Grabando ${m}:${s.toString().padStart(2, '0')}`;
         }
 
         function stopRecording() {
             if (!state.isRecording || !state.mediaRecorder) return;
             state.mediaRecorder.stop();
-            // Los tracks se detienen después de que se procese el audio para evitar que el navegador cierre la fuente demasiado pronto.
             state.mediaRecorder.stream.getTracks().forEach(track => track.stop());
             state.isRecording = false;
+            clearInterval(state.recordingInterval);
+            
             const btn = document.getElementById('btn-record');
             btn.classList.remove('bg-red-500', 'recording-pulse', 'text-white');
             btn.classList.add('bg-gray-100', 'text-gray-500');
         }
 
         function processAudio() {
-            // Utilizamos el MIME type guardado en el estado para asegurar la compatibilidad del Blob
-            const mimeType = state.audioMimeType;
-            if (state.audioChunks.length === 0) {
-                 // Si no hay chunks, el audio es 0:00. Reseteamos y mostramos error suave.
-                 document.getElementById('audio-status').innerText = "¡No se grabó nada! Intenta de nuevo.";
-                 setTimeout(resetAudio, 3000); 
-                 return;
-            }
-
+            const mimeType = state.audioChunks.length > 0 ? state.audioChunks[0].type : 'audio/webm';
             const blob = new Blob(state.audioChunks, { type: mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
@@ -432,8 +408,8 @@
                 state.audioBlobBase64 = reader.result;
                 const container = document.getElementById('audio-preview-container');
                 container.classList.remove('hidden');
-                container.innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8"></audio>`;
-                document.getElementById('audio-status').innerText = "Audio grabado";
+                container.innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8 mt-1"></audio>`;
+                document.getElementById('audio-status').innerText = "Listo para enviar";
                 document.getElementById('btn-delete-audio').classList.remove('hidden');
                 document.getElementById('btn-record').classList.add('hidden');
             };
@@ -442,14 +418,15 @@
         function resetAudio() {
             state.audioBlobBase64 = null;
             state.audioChunks = [];
-            state.audioMimeType = null;
+            clearInterval(state.recordingInterval);
             document.getElementById('audio-preview-container').classList.add('hidden');
             document.getElementById('audio-status').classList.add('hidden');
+            document.getElementById('audio-status').innerText = "";
             document.getElementById('btn-delete-audio').classList.add('hidden');
             document.getElementById('btn-record').classList.remove('hidden');
         }
 
-        // --- POSTS & COMMENTS ---
+        // --- POSTS ---
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
             document.getElementById('btn-refresh').classList.add('animate-spin');
@@ -499,7 +476,6 @@
             filtered.forEach(p => {
                 let card = document.getElementById(`post-${p.id}`);
                 if(card) {
-                    // Update ligero: solo texto
                     const distLabel = card.querySelector('.dist-label');
                     if(distLabel) distLabel.innerText = formatDistance(p.distance);
                 } else {
@@ -572,48 +548,6 @@
                 });
                 fetchPosts();
             } catch(e) {}
-        }
-
-        async function openComments(postId) {
-            state.currentPostId = postId;
-            toggleModal('modal-comments', true);
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
-            try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
-                if(res.ok) renderComments(await res.json());
-            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-red-400">Error</p>'; }
-        }
-
-        function renderComments(comments) {
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '';
-            if(comments.length === 0) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sin comentarios.</p>'; return; }
-            comments.forEach(c => {
-                const el = document.createElement('div');
-                el.className = "mb-3 border-b border-gray-50 pb-2";
-                el.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>`;
-                list.appendChild(el);
-            });
-        }
-
-        async function publishComment() {
-            const input = document.getElementById('comment-input');
-            const text = input.value.trim();
-            if(!text || !state.currentPostId) return;
-            const btn = document.getElementById('btn-send-comment');
-            btn.disabled = true;
-            try {
-                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
-                });
-                input.value = '';
-                openComments(state.currentPostId);
-            } catch(e) {} finally { btn.disabled = false; }
         }
 
         async function publishPost() {
@@ -693,6 +627,48 @@
             }
         }
 
+        async function openComments(postId) {
+            state.currentPostId = postId;
+            toggleModal('modal-comments', true);
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '<div class="text-center py-8"><i class="fas fa-circle-notch fa-spin text-gray-300"></i></div>';
+            try {
+                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
+                    headers: { 'Authorization': `Bearer ${state.authToken}` }
+                });
+                if(res.ok) renderComments(await res.json());
+            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-red-400">Error</p>'; }
+        }
+
+        function renderComments(comments) {
+            const list = document.getElementById('comments-list');
+            list.innerHTML = '';
+            if(comments.length === 0) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-4">Sin comentarios.</p>'; return; }
+            comments.forEach(c => {
+                const el = document.createElement('div');
+                el.className = "mb-3 border-b border-gray-50 pb-2";
+                el.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800 leading-tight">${escapeHtml(c.text)}</p>`;
+                list.appendChild(el);
+            });
+        }
+
+        async function publishComment() {
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if(!text || !state.currentPostId) return;
+            const btn = document.getElementById('btn-send-comment');
+            btn.disabled = true;
+            try {
+                await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                input.value = '';
+                openComments(state.currentPostId);
+            } catch(e) {} finally { btn.disabled = false; }
+        }
+
         // --- UTILS ---
         function toggleModal(id, show) {
             const el = document.getElementById(id);
@@ -711,23 +687,6 @@
             if(s<60) return '1m'; if(s<3600) return Math.floor(s/60)+'m'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d';
         }
         function requestNotificationPermission() { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }
-        function sendNotification(msg) { if("Notification" in window && Notification.permission === "granted") new Notification("Whispr", { body: msg }); }
-        
-        function toggleAuthMode(mode) {
-            const authMode = document.getElementById('auth-mode');
-            const authSubmit = document.getElementById('auth-submit');
-            const toggleText = document.getElementById('auth-toggle-text');
-            
-            if (mode === 'register') {
-                authMode.value = 'register';
-                authSubmit.innerText = 'Crear cuenta';
-                toggleText.innerHTML = `<span class="text-gray-400">¿Ya tienes cuenta?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('login')">Entrar</button>`;
-            } else {
-                authMode.value = 'login';
-                authSubmit.innerText = 'Entrar';
-                toggleText.innerHTML = `<span class="text-gray-400">¿Nuevo?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button>`;
-            }
-        }
     </script>
 </head>
 <body class="bg-white text-black h-screen-dvh flex flex-col overflow-hidden font-sans antialiased pb-safe">
@@ -767,7 +726,7 @@
         </div>
     </div>
 
-    <!-- BOTTOM NAV (Safe area fix) -->
+    <!-- BOTTOM NAV -->
     <div class="bg-white border-t border-gray-100 h-[60px] flex justify-around items-center px-2 z-30 pb-safe">
         <button id="tab-feed" class="flex-1 flex flex-col items-center justify-center text-black"><i class="fas fa-stream text-lg"></i><span class="text-[10px] font-bold mt-1">Lista</span></button>
         <div class="flex-2 px-2 flex flex-col items-center justify-center w-1/2">
@@ -777,7 +736,7 @@
         <button id="tab-map" class="flex-1 flex flex-col items-center justify-center text-gray-400"><i class="fas fa-map-marked-alt text-lg"></i><span class="text-[10px] font-bold mt-1">Mapa</span></button>
     </div>
 
-    <!-- FAB (Position fix) -->
+    <!-- FAB -->
     <button id="fab-add" class="fixed bottom-24 right-5 bg-black text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform z-40"><i class="fas fa-plus"></i></button>
 
     <!-- MODALS -->
@@ -834,7 +793,7 @@
             <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 font-medium text-sm focus:ring-2 ring-black" placeholder="Contraseña">
             <button id="auth-submit" class="w-full bg-black text-white py-3 rounded-xl font-bold text-sm shadow-lg mt-4">Entrar</button>
         </div>
-        <p id="auth-toggle-text" class="mt-8 text-sm text-gray-500"><span class="text-gray-400">¿Ya tienes cuenta?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button></p>
+        <p id="auth-toggle-text" class="mt-8 text-sm text-gray-500"><span class="text-gray-400">¿Nuevo?</span> <button class="font-bold text-black ml-1 hover:underline" onclick="toggleAuthMode('register')">Crear cuenta</button></p>
     </div>
 
     <div id="modal-comments" class="hidden fixed inset-0 z-[55] bg-black/20 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
