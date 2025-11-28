@@ -330,7 +330,7 @@
             // Filtrar posts con audio cercanos que NO hayan sido reproducidos
             const candidates = state.loadedPosts.filter(p => 
                 p.audio && 
-                getDist(state.userLocation, p) < 3 && // < 3 metros
+                getDist(state.userLocation, p) < 1 && // < 3 metros
                 !state.playedAudios.has(p.id)
             );
             
