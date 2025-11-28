@@ -137,7 +137,8 @@
             audioChunks: [],
             audioBlobBase64: null,
             isRecording: false,
-            playedAudios: new Set()
+            playedAudios: new Set(),
+            isRadioPlaying: false // Nuevo flag para evitar solapamientos
         };
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -179,7 +180,7 @@
             on('tab-radio', 'click', () => switchTab('radio'));
             on('tab-map', 'click', () => switchTab('map'));
 
-            // Slider Rango MODIFICADO: 10m a 200m
+            // Slider Rango: 10m a 200m
             const slider = document.getElementById('rangeSlider');
             if(slider) {
                 slider.addEventListener('input', (e) => {
@@ -323,26 +324,51 @@
         }
 
         function checkRadioProximity() {
-            if(!state.loadedPosts || !state.userLocation) return;
+            // Si ya está sonando algo, no interrumpir ni buscar nuevos
+            if(state.isRadioPlaying || !state.loadedPosts || !state.userLocation) return;
             
-            // Filtrar posts con audio y calcular distancia
-            const audibles = state.loadedPosts.filter(p => p.audio && getDist(state.userLocation, p) < 3); // < 3 metros
+            // Filtrar posts con audio cercanos que NO hayan sido reproducidos
+            const candidates = state.loadedPosts.filter(p => 
+                p.audio && 
+                getDist(state.userLocation, p) < 3 && // < 3 metros
+                !state.playedAudios.has(p.id)
+            );
             
-            if(audibles.length > 0) {
-                const next = audibles.find(p => !state.playedAudios.has(p.id));
-                
-                if(next) {
-                    // Reproducir
-                    const player = new Audio(next.audio);
-                    player.play().then(() => {
-                        state.playedAudios.add(next.id);
-                        showRadioPlaying(next);
-                        if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
-                    }).catch(e => console.log("Autoplay blocked", e));
-                }
+            if(candidates.length > 0) {
+                // Reproducir el primero encontrado (secuencial)
+                playRadioTrack(candidates[0]);
             } else {
                 hideRadioPlaying();
             }
+        }
+
+        function playRadioTrack(post) {
+            state.isRadioPlaying = true; // Bloquear nuevas reproducciones
+            state.playedAudios.add(post.id); // Marcar como escuchado
+
+            const player = new Audio(post.audio);
+            
+            // Evento CRUCIAL: Cuando acabe, desbloquear y buscar el siguiente
+            player.onended = () => {
+                state.isRadioPlaying = false;
+                hideRadioPlaying();
+                // Llamada recursiva para buscar el siguiente en la cola (si sigues cerca)
+                checkRadioProximity();
+            };
+            
+            // Manejo de errores (si falla, desbloquear para que intente otro)
+            player.onerror = () => {
+                state.isRadioPlaying = false;
+                console.warn("Error reproduciendo audio");
+            };
+
+            player.play().then(() => {
+                showRadioPlaying(post);
+                if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
+            }).catch(e => {
+                console.log("Autoplay blocked", e);
+                state.isRadioPlaying = false; // Resetear flag si falla autoplay
+            });
         }
 
         function showRadioPlaying(post) {
@@ -362,7 +388,7 @@
 
         function hideRadioPlaying() {
             const el = document.getElementById('radio-playing-info');
-            if(!el.innerHTML.includes('REPRODUCIENDO')) el.classList.add('hidden');
+            if(el) el.classList.add('hidden');
         }
 
         async function fetchPosts() {
@@ -422,8 +448,8 @@
 
                 setTimeout(() => { 
                     initMap(); 
-                    state.mapInstance.invalidateSize(); 
-                    updateUserMarker(); // Refrescar icono usuario
+                    if(state.mapInstance) state.mapInstance.invalidateSize(); 
+                    updateUserMarker(); 
                 }, 100);
             }
         }
