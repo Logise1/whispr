@@ -70,9 +70,19 @@
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- CONFIGURACIÓN ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'whispr-dev';
+        // --- TU CONFIGURACIÓN ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAxp3akXJZXC6qrw6LhqNRFRS-Z1vUHb8A",
+            authDomain: "whispr-89c76.firebaseapp.com",
+            projectId: "whispr-89c76",
+            storageBucket: "whispr-89c76.firebasestorage.app",
+            messagingSenderId: "215012367928",
+            appId: "1:215012367928:web:6a49d53d2ccaf73097d0cd",
+            measurementId: "G-8NCRCLJKBE"
+        };
+
+        // Identificador de app para la ruta de Firestore (Standard para este entorno)
+        const collectionAppId = typeof __app_id !== 'undefined' ? __app_id : 'whispr-prod';
 
         // Inicializar Firebase
         const app = initializeApp(firebaseConfig);
@@ -142,7 +152,7 @@
         let unsubscribe = null;
         function initRealtimeListener() {
             if(unsubscribe) unsubscribe();
-            const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
+            const postsRef = collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts');
             const q = query(postsRef, orderBy('timestamp', 'desc'), limit(150));
 
             unsubscribe = onSnapshot(q, (snapshot) => {
@@ -159,8 +169,10 @@
 
         // --- UI & LOGIC ---
         window.refreshUI = () => {
-            if(!state.userLocation) return; 
-            state.posts.forEach(p => p.distance = getDist(state.userLocation, p));
+            // Si no hay userLocation, calculamos distancia ficticia 0
+            const currentLoc = state.userLocation || {lat: 0, lng: 0};
+            
+            state.posts.forEach(p => p.distance = getDist(currentLoc, p));
             if(state.currentTab === 'feed') renderFeed();
             if(state.currentTab === 'map' || state.currentTab === 'radio') updateMapMarkers();
             if(state.currentTab === 'radio') checkRadio();
@@ -169,16 +181,18 @@
         function renderFeed() {
             const container = document.getElementById('feed-container');
             const filtered = state.posts
-                .filter(p => p.distance <= state.range)
                 .filter(p => state.activeFilter === 'all' || p.category === state.activeFilter)
                 .sort((a,b) => a.distance - b.distance);
+                
+            // Aplicar filtro de rango SOLO si tenemos ubicación real
+            const displayed = state.userLocation ? filtered.filter(p => p.distance <= state.range) : filtered;
 
             container.innerHTML = '';
-            if(filtered.length === 0) {
+            if(displayed.length === 0) {
                 container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Nada en ${state.range}m.</div>`;
                 return;
             }
-            filtered.forEach(p => container.appendChild(createCard(p)));
+            displayed.forEach(p => container.appendChild(createCard(p)));
             container.appendChild(document.createElement('div')).className = 'h-32';
         }
 
@@ -213,7 +227,12 @@
         // --- MAPA ---
         function initMap() {
             if(state.map) return;
-            state.map = L.map('map-view', { zoomControl: false }).setView([state.userLocation.lat, state.userLocation.lng], 18);
+            
+            // Fallback por defecto si no hay GPS aún (Madrid) para evitar error null.lat
+            const lat = state.userLocation ? state.userLocation.lat : 40.4168;
+            const lng = state.userLocation ? state.userLocation.lng : -3.7038;
+
+            state.map = L.map('map-view', { zoomControl: false }).setView([lat, lng], 18);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.map);
             state.markers = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) });
             state.map.addLayer(state.markers);
@@ -232,6 +251,9 @@
 
         function updateUserMarker() {
             if(!state.map) return;
+            // Si no tenemos ubicación, no pintamos el marcador de usuario, o usamos el fallback sin icono
+            if (!state.userLocation) return; 
+
             const pulseClass = state.currentTab === 'radio' ? 'radio-pulse' : 'user-pulse';
             const icon = L.divIcon({ className: 'bg-transparent border-none', html: `<div class="${pulseClass}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
             
@@ -283,7 +305,7 @@
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'), {
+                await addDoc(collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts'), {
                     text: text,
                     audio: state.audioBlobBase64 || null,
                     lat: state.userLocation.lat,
@@ -305,7 +327,7 @@
 
         window.toggleLike = async (id) => {
             if(!state.user) return;
-            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
+            const ref = doc(db, 'artifacts', collectionAppId, 'public', 'data', 'posts', id);
             const post = state.posts.find(p => p.id === id);
             const isLiked = post.likes && post.likes.includes(state.user.uid);
             await updateDoc(ref, { likes: isLiked ? arrayRemove(state.user.uid) : arrayUnion(state.user.uid) });
@@ -328,15 +350,13 @@
         // --- GRABACIÓN DE AUDIO (FIXED) ---
         window.toggleRecording = async () => {
             if (state.isRecording) {
-                // STOP RECORDING
                 if (state.mediaRecorder && state.mediaRecorder.state === 'recording') {
                     state.mediaRecorder.stop();
                 }
             } else {
-                // START RECORDING
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Prefer webm
+                    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     state.audioChunks = [];
                     
                     state.mediaRecorder.ondataavailable = (e) => {
@@ -351,22 +371,16 @@
                         reader.readAsDataURL(blob);
                         reader.onloadend = () => {
                             state.audioBlobBase64 = reader.result;
-                            
-                            // Mostrar Player
                             const ui = document.getElementById('audio-ui');
                             ui.innerHTML = `<audio controls src="${state.audioBlobBase64}"></audio>`;
                             
-                            // UI Updates
                             document.getElementById('btn-rec').innerHTML = '<i class="fas fa-microphone"></i>';
                             document.getElementById('btn-rec').classList.remove('bg-red-500', 'animate-pulse-fast', 'text-white');
-                            document.getElementById('btn-rec').classList.add('bg-gray-100', 'text-black', 'hidden'); // Hide mic, show delete
+                            document.getElementById('btn-rec').classList.add('bg-gray-100', 'text-black', 'hidden'); 
                             document.getElementById('del-audio').classList.remove('hidden');
                             document.getElementById('rec-status').classList.add('hidden');
-                            
                             clearInterval(state.recordInterval);
                         };
-                        
-                        // Stop tracks
                         stream.getTracks().forEach(t => t.stop());
                     };
 
@@ -374,7 +388,6 @@
                     state.isRecording = true;
                     state.recordStartTime = Date.now();
                     
-                    // UI Updates
                     const btn = document.getElementById('btn-rec');
                     btn.innerHTML = '<i class="fas fa-stop"></i>';
                     btn.classList.remove('bg-gray-100', 'text-black');
@@ -391,9 +404,7 @@
                         status.innerText = `${m}:${s}`;
                     }, 1000);
 
-                } catch(e) {
-                    alert("No se pudo acceder al micrófono: " + e.message);
-                }
+                } catch(e) { alert("Micro bloqueado"); }
             }
         };
 
@@ -402,11 +413,9 @@
             state.audioChunks = [];
             state.isRecording = false;
             if(state.recordInterval) clearInterval(state.recordInterval);
-            
             document.getElementById('audio-ui').innerHTML = '';
             document.getElementById('del-audio').classList.add('hidden');
             document.getElementById('rec-status').classList.add('hidden');
-            
             const btn = document.getElementById('btn-rec');
             btn.classList.remove('hidden', 'bg-red-500', 'animate-pulse-fast', 'text-white');
             btn.classList.add('bg-gray-100', 'text-black');
@@ -417,6 +426,7 @@
         navigator.geolocation.watchPosition(
             (pos) => {
                 const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                // Solo actualizar si nos movemos > 2m para evitar jitter, o si es la primera vez
                 if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
                     state.userLocation = newLoc;
                     document.getElementById('gps-loading').classList.add('hidden');
@@ -513,7 +523,7 @@
             <textarea id="post-input" rows="4" class="w-full text-xl font-medium placeholder-gray-300 border-none focus:ring-0 resize-none p-2 bg-transparent" placeholder="Cuenta algo..."></textarea>
             
             <div class="flex items-center gap-3 mt-4 bg-gray-50 p-3 rounded-2xl">
-                <!-- Botón de Grabar con Toggle -->
+                <!-- Toggle Recording Button -->
                 <button id="btn-rec" onclick="toggleRecording()" class="w-10 h-10 rounded-full bg-gray-100 text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
                 
                 <div class="flex-1 overflow-hidden">
