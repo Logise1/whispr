@@ -83,25 +83,28 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // --- ESTADO ---
+        // --- ESTADO GLOBAL ---
         window.state = {
             user: null,
             userLocation: null,
             range: 50,
+            activeFilter: 'all',
             currentTab: 'feed',
             posts: [],
             map: null,
             markers: null,
             userMarker: null,
             isRadioPlaying: false,
-            radioEnabled: false, // Nueva flag para permiso de audio
+            radioEnabled: false, // Permiso explícito
             playedAudios: new Set(),
             audioBlobBase64: null,
             mediaRecorder: null,
             audioChunks: [],
             isRecording: false,
             recordStartTime: 0,
-            recordInterval: null
+            recordInterval: null,
+            // Reproductor Global Único
+            globalAudio: new Audio()
         };
 
         // --- AUTH ---
@@ -158,7 +161,7 @@
                     return { 
                         id: doc.id, 
                         ...d, 
-                        lat: parseFloat(d.lat), // Forzar numérico CRÍTICO para el mapa
+                        lat: parseFloat(d.lat), 
                         lng: parseFloat(d.lng),
                         timestamp: ts, 
                         expiresAt: exp 
@@ -197,6 +200,12 @@
             container.appendChild(document.createElement('div')).className = 'h-32';
         }
 
+        // Reproducir audio en LISTA (usando el global para evitar solapamientos)
+        window.playAudioInList = (url) => {
+            state.globalAudio.src = url;
+            state.globalAudio.play();
+        }
+
         function createCard(p) {
             const div = document.createElement('div');
             div.className = "post-card bg-white p-5 mb-4 rounded-2xl shadow-soft border border-gray-50 mx-4 animate-fade-in";
@@ -213,7 +222,7 @@
                 <div class="mb-4 pl-10">
                     <div class="w-1.5 h-1.5 rounded-full mb-2 bg-black"></div>
                     <p class="text-gray-800 text-[15px] whitespace-pre-line">${escapeHtml(p.text)}</p>
-                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="new Audio('${p.audio}').play()" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
+                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="playAudioInList('${p.audio}')" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer hover:scale-105 transition-transform"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
                 </div>
                 <div class="flex items-center pl-10 gap-6">
                     <button onclick="toggleLike('${p.id}')" class="flex items-center gap-1.5 ${isLiked ? 'text-orange-500' : 'text-gray-400'}"><i class="${isLiked ? 'fas' : 'fas'} fa-fire text-lg"></i><span class="text-xs font-bold">${p.likes ? p.likes.length : 0}</span></button>
@@ -252,7 +261,8 @@
             
             if(state.userMarker) {
                 state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]);
-                if(!state.userMarker._icon.innerHTML.includes(pulseClass)) state.userMarker.setIcon(icon);
+                // Forzar actualización de icono si cambia el modo
+                state.userMarker.setIcon(icon);
             } else {
                 state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.map);
             }
@@ -261,19 +271,24 @@
 
         // --- RADIO (7 METROS) ---
         window.activateRadio = () => {
-            state.radioEnabled = true;
-            document.getElementById('radio-start-overlay').classList.add('hidden');
-            // Reproducir sonido silencioso para desbloquear el contexto de audio en iOS/Android
-            const silent = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAgAAAA==");
-            silent.play().catch(e => console.log("Audio unlock failed", e));
-            checkRadio();
+            // Reproducir sonido silencioso para desbloquear el AudioContext del navegador
+            // Esto es CRUCIAL para que luego suene solo
+            const unlock = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAgAAAA==");
+            unlock.play().then(() => {
+                state.radioEnabled = true;
+                document.getElementById('radio-start-overlay').classList.add('hidden');
+                checkRadio(); // Primer chequeo inmediato
+            }).catch(e => {
+                alert("Error: Toca la pantalla para permitir el audio.");
+            });
         };
 
         function checkRadio() {
             if(state.isRadioPlaying || !state.userLocation || !state.radioEnabled) return;
             
+            // Buscar audios NO reproducidos a < 7 metros
             const candidates = state.posts
-                .filter(p => p.audio && p.distance < 7 && !state.playedAudios.has(p.id)) // 7 metros
+                .filter(p => p.audio && p.distance < 7 && !state.playedAudios.has(p.id))
                 .sort((a,b) => a.distance - b.distance);
 
             if(candidates.length > 0) {
@@ -285,19 +300,27 @@
                 info.classList.remove('hidden');
                 info.querySelector('.author').innerText = post.authorName || 'Anon';
                 
-                const audio = new Audio(post.audio);
-                audio.onended = () => {
+                // Usar el reproductor global
+                state.globalAudio.src = post.audio;
+                
+                state.globalAudio.onended = () => {
                     state.isRadioPlaying = false;
                     info.classList.add('hidden');
-                    checkRadio();
+                    checkRadio(); // Buscar el siguiente en la cola
                 };
-                audio.play().catch(() => {
+                
+                state.globalAudio.onerror = () => {
+                    state.isRadioPlaying = false; // Liberar si falla
+                };
+
+                state.globalAudio.play().catch(e => {
+                    console.error("Autoplay bloqueado:", e);
                     state.isRadioPlaying = false;
-                    // Si falla, mostramos el botón de activar otra vez por si acaso
+                    state.radioEnabled = false; // Resetear para forzar botón de nuevo
                     document.getElementById('radio-start-overlay').classList.remove('hidden');
                 });
                 
-                if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
+                if(navigator.vibrate) navigator.vibrate([50, 100, 50]);
             }
         }
 
@@ -306,11 +329,7 @@
             const text = document.getElementById('post-input').value.trim();
             const btn = document.getElementById('btn-publish');
             
-            // Verificación estricta de GPS
-            if(!state.userLocation) {
-                alert("Tu GPS aún no es preciso. Espera unos segundos o sal al exterior.");
-                return;
-            }
+            if(!state.userLocation) return alert("Esperando señal GPS precisa...");
             if(!text && !state.audioBlobBase64) return alert("Escribe o graba algo.");
             
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -319,7 +338,6 @@
                 await addDoc(collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts'), {
                     text: text,
                     audio: state.audioBlobBase64 || null,
-                    // Asegurar números flotantes
                     lat: parseFloat(state.userLocation.lat),
                     lng: parseFloat(state.userLocation.lng),
                     category: 'gossip',
@@ -348,6 +366,14 @@
         // --- UTILS ---
         window.switchTab = (t) => {
             state.currentTab = t;
+            
+            // Pausar audio si salimos de la pestaña
+            if(t !== 'radio' && state.isRadioPlaying) {
+                state.globalAudio.pause();
+                state.isRadioPlaying = false;
+                document.getElementById('radio-playing-info').classList.add('hidden');
+            }
+
             ['feed','radio','map'].forEach(x => {
                 document.getElementById(`tab-${x}`).classList.toggle('text-black', x===t);
                 document.getElementById(`tab-${x}`).classList.toggle('text-gray-400', x!==t);
@@ -355,7 +381,7 @@
             document.getElementById('feed-container').classList.toggle('hidden', t!=='feed');
             document.getElementById('map-view-container').classList.toggle('hidden', t==='feed');
             document.getElementById('radio-badge').classList.toggle('hidden', t!=='radio');
-            document.getElementById('radio-start-overlay').classList.add('hidden'); // Ocultar por defecto
+            document.getElementById('radio-start-overlay').classList.add('hidden'); 
 
             if(t === 'map' || t === 'radio') { 
                 setTimeout(() => { initMap(); if(state.map) state.map.invalidateSize(); updateUserMarker(); }, 100); 
@@ -438,12 +464,10 @@
         navigator.geolocation.watchPosition(
             (pos) => {
                 const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                // Actualizar si es primera vez o movimiento > 2m
                 if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
                     state.userLocation = newLoc;
                     document.getElementById('gps-loading').classList.add('hidden');
                     
-                    // Desbloquear botón publicar
                     const pubBtn = document.getElementById('btn-publish');
                     if(pubBtn && pubBtn.innerText === "Esperando GPS...") {
                         pubBtn.disabled = false;
@@ -452,7 +476,8 @@
                     refreshUI();
                 }
             },
-            () => {}, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            () => { document.getElementById('gps-loading').innerHTML = '<p class="text-xs text-red-500">GPS Error</p>'; }, 
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
 
         window.toggleModal = (id, show) => { 
@@ -503,16 +528,15 @@
         
         <div id="map-view-container" class="hidden absolute inset-0 z-0 bg-gray-100">
             <div id="map-view" class="w-full h-full opacity-0 animate-fade-in"></div>
-            
             <!-- Radio Badge -->
             <div id="radio-badge" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-4 py-2 rounded-full flex items-center gap-2 z-[400] shadow-lg">
                 <div class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div><span class="text-xs font-bold tracking-widest">RADIO ACTIVA</span>
             </div>
 
-            <!-- Start Radio Button (Para desbloquear audio) -->
+            <!-- Start Radio Button (PARA DESBLOQUEAR AUDIO) -->
             <div id="radio-start-overlay" class="hidden absolute inset-0 z-[600] flex items-center justify-center bg-black/40 backdrop-blur-sm">
                 <button onclick="activateRadio()" class="bg-black text-white px-8 py-4 rounded-full font-bold text-lg shadow-2xl animate-pulse-radar border-2 border-white/20">
-                    <i class="fas fa-power-off mr-2"></i> ACTIVAR RADIO
+                    <i class="fas fa-power-off mr-2"></i> ENCENDER RADIO
                 </button>
             </div>
 
