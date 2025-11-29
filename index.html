@@ -30,7 +30,8 @@
                     animation: {
                         'fade-in': 'fadeIn 0.4s ease-out forwards',
                         'slide-up': 'slideUp 0.3s ease-out forwards',
-                        'pulse-radar': 'pulseRadar 2s infinite'
+                        'pulse-radar': 'pulseRadar 2s infinite',
+                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                     },
                     keyframes: {
                         fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
@@ -56,6 +57,11 @@
         .radio-pulse { width: 16px; height: 16px; background: #10B981; border: 2px solid white; border-radius: 50%; animation: pulse-ring-green 2s infinite; }
         @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
         @keyframes pulse-ring-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+        
+        /* Player de audio custom */
+        audio { height: 30px; border-radius: 20px; width: 100%; }
+        audio::-webkit-media-controls-panel { background-color: #f3f4f6; }
+        audio::-webkit-media-controls-play-button { background-color: #e5e7eb; border-radius: 50%; }
     </style>
 
     <!-- FIREBASE SDKs -->
@@ -64,18 +70,8 @@
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- TU CONFIGURACIÓN ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyAxp3akXJZXC6qrw6LhqNRFRS-Z1vUHb8A",
-            authDomain: "whispr-89c76.firebaseapp.com",
-            projectId: "whispr-89c76",
-            storageBucket: "whispr-89c76.firebasestorage.app",
-            messagingSenderId: "215012367928",
-            appId: "1:215012367928:web:6a49d53d2ccaf73097d0cd",
-            measurementId: "G-8NCRCLJKBE"
-        };
-
-        // Identificador de app para la ruta de Firestore (Standard para este entorno)
+        // --- CONFIGURACIÓN ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'whispr-dev';
 
         // Inicializar Firebase
@@ -87,7 +83,7 @@
         window.state = {
             user: null,
             userLocation: null,
-            range: 50, // Filtro Lista 10m-200m
+            range: 50,
             activeFilter: 'all',
             currentTab: 'feed',
             posts: [],
@@ -98,124 +94,90 @@
             playedAudios: new Set(),
             audioBlobBase64: null,
             mediaRecorder: null,
-            audioChunks: []
+            audioChunks: [],
+            isRecording: false,
+            recordStartTime: 0,
+            recordInterval: null
         };
 
-        // --- AUTH: USERNAME -> FAKE EMAIL ---
+        // --- AUTH ---
         window.handleAuth = async () => {
             const userIn = document.getElementById('auth-username').value.trim();
             const passIn = document.getElementById('auth-password').value;
-            
             if(!userIn || !passIn) return alert("Faltan datos");
             
-            // Creamos un email falso para que Firebase Auth funcione con Username
             const fakeEmail = `${userIn.toLowerCase().replace(/\s/g,'')}@whispr.app`;
             const btn = document.getElementById('auth-submit');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
 
             try {
-                // 1. Intentar Login
                 await signInWithEmailAndPassword(auth, fakeEmail, passIn);
             } catch (e) {
-                // 2. Si falla (ej: user-not-found), intentar Registro
                 if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found') {
-                    const doRegister = confirm("Usuario no encontrado. ¿Crear cuenta nueva?");
-                    if (doRegister) {
+                    if (confirm("Usuario no encontrado. ¿Crear cuenta nueva?")) {
                         try {
                             const cred = await createUserWithEmailAndPassword(auth, fakeEmail, passIn);
                             await updateProfile(cred.user, { displayName: userIn });
-                        } catch (regErr) {
-                            alert("Error registro: " + regErr.message);
-                        }
+                        } catch (regErr) { alert("Error registro: " + regErr.message); }
                     }
-                } else {
-                    alert("Error login: " + e.message);
-                }
-            } finally {
-                btn.innerText = "Entrar / Registrar";
-                btn.disabled = false;
-            }
+                } else { alert("Error login: " + e.message); }
+            } finally { btn.innerText = "Entrar / Registrar"; btn.disabled = false; }
         };
 
         window.doLogout = () => signOut(auth);
 
-        // Listener Sesión
         onAuthStateChanged(auth, (user) => {
             state.user = user;
-            const modal = document.getElementById('modal-auth');
             if (user) {
-                modal.classList.add('hidden');
-                document.getElementById('prof-pseudo').value = user.displayName || user.email.split('@')[0];
-                initRealtimeListener(); // Conectar a DB
+                document.getElementById('modal-auth').classList.add('hidden');
+                document.getElementById('prof-pseudo').value = user.displayName || 'Anon';
+                initRealtimeListener();
             } else {
-                modal.classList.remove('hidden');
+                document.getElementById('modal-auth').classList.remove('hidden');
             }
         });
 
-        // --- FIRESTORE REALTIME (SIN LAG) ---
+        // --- FIRESTORE ---
         let unsubscribe = null;
-
         function initRealtimeListener() {
             if(unsubscribe) unsubscribe();
-
-            // Ruta estricta requerida por el sistema
             const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
-            
-            // Traemos los últimos 150 posts. El filtrado de distancia se hace en cliente para rapidez.
             const q = query(postsRef, orderBy('timestamp', 'desc'), limit(150));
 
             unsubscribe = onSnapshot(q, (snapshot) => {
                 const now = new Date();
-                
                 state.posts = snapshot.docs.map(doc => {
                     const d = doc.data();
-                    // Convertir Timestamp Firestore a Date JS
                     const ts = d.timestamp ? d.timestamp.toDate() : new Date();
                     const exp = d.expiresAt ? d.expiresAt.toDate() : null;
-                    
                     return { id: doc.id, ...d, timestamp: ts, expiresAt: exp };
-                })
-                .filter(p => !p.expiresAt || p.expiresAt > now); // Filtrar expirados
-
-                refreshUI(); // Actualizar interfaz al recibir datos nuevos
+                }).filter(p => !p.expiresAt || p.expiresAt > now);
+                refreshUI();
             });
         }
 
-        // --- UI REFRESH ---
+        // --- UI & LOGIC ---
         window.refreshUI = () => {
             if(!state.userLocation) return; 
-
-            // Calcular distancias
-            state.posts.forEach(p => {
-                p.distance = getDist(state.userLocation, p);
-            });
-
+            state.posts.forEach(p => p.distance = getDist(state.userLocation, p));
             if(state.currentTab === 'feed') renderFeed();
-            
-            // Actualizar mapa y marcadores sin parpadeos
-            if(state.currentTab === 'map' || state.currentTab === 'radio') {
-                updateMapMarkers();
-            }
-            
+            if(state.currentTab === 'map' || state.currentTab === 'radio') updateMapMarkers();
             if(state.currentTab === 'radio') checkRadio();
         };
 
-        // --- FEED LIST ---
         function renderFeed() {
             const container = document.getElementById('feed-container');
             const filtered = state.posts
-                .filter(p => p.distance <= state.range) // Filtro Slider
+                .filter(p => p.distance <= state.range)
                 .filter(p => state.activeFilter === 'all' || p.category === state.activeFilter)
                 .sort((a,b) => a.distance - b.distance);
 
             container.innerHTML = '';
-            
             if(filtered.length === 0) {
                 container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Nada en ${state.range}m.</div>`;
                 return;
             }
-
             filtered.forEach(p => container.appendChild(createCard(p)));
             container.appendChild(document.createElement('div')).className = 'h-32';
         }
@@ -248,7 +210,7 @@
             return div;
         }
 
-        // --- MAPA (Leaflet) ---
+        // --- MAPA ---
         function initMap() {
             if(state.map) return;
             state.map = L.map('map-view', { zoomControl: false }).setView([state.userLocation.lat, state.userLocation.lng], 18);
@@ -261,10 +223,7 @@
         function updateMapMarkers() {
             if(!state.markers) return;
             state.markers.clearLayers();
-            
-            // Mapa muestra TODO (filtro solo por categoría, NO por rango)
             const visible = state.posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
-            
             visible.forEach(p => {
                 const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
                 state.markers.addLayer(m);
@@ -282,8 +241,7 @@
             } else {
                 state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.map);
             }
-            // Centrar mapa suavemente si es radio
-            if(state.currentTab === 'radio') state.map.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true, duration: 1 });
+            if(state.currentTab === 'radio') state.map.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true });
         }
 
         // --- RADIO (3 Metros) ---
@@ -291,7 +249,7 @@
             if(state.isRadioPlaying || !state.userLocation) return;
             
             const candidates = state.posts
-                .filter(p => p.audio && p.distance <= 3 && !state.playedAudios.has(p.id))
+                .filter(p => p.audio && p.distance < 3 && !state.playedAudios.has(p.id))
                 .sort((a,b) => a.distance - b.distance);
 
             if(candidates.length > 0) {
@@ -307,7 +265,7 @@
                 audio.onended = () => {
                     state.isRadioPlaying = false;
                     info.classList.add('hidden');
-                    checkRadio(); // Siguiente
+                    checkRadio();
                 };
                 audio.play().catch(() => state.isRadioPlaying = false);
                 if(navigator.vibrate) navigator.vibrate(50);
@@ -325,10 +283,9 @@
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
             try {
-                // Guardar directo a Firestore
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'), {
                     text: text,
-                    audio: state.audioBlobBase64,
+                    audio: state.audioBlobBase64 || null,
                     lat: state.userLocation.lat,
                     lng: state.userLocation.lng,
                     category: cat,
@@ -350,13 +307,8 @@
             if(!state.user) return;
             const ref = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
             const post = state.posts.find(p => p.id === id);
-            if(!post) return;
             const isLiked = post.likes && post.likes.includes(state.user.uid);
-            
-            // Firestore Array update
-            await updateDoc(ref, {
-                likes: isLiked ? arrayRemove(state.user.uid) : arrayUnion(state.user.uid)
-            });
+            await updateDoc(ref, { likes: isLiked ? arrayRemove(state.user.uid) : arrayUnion(state.user.uid) });
         };
 
         // --- UTILS ---
@@ -369,52 +321,112 @@
             document.getElementById('feed-container').classList.toggle('hidden', t!=='feed');
             document.getElementById('map-view-container').classList.toggle('hidden', t==='feed');
             document.getElementById('radio-badge').classList.toggle('hidden', t!=='radio');
-            
-            if(t === 'map' || t === 'radio') {
-                setTimeout(() => { initMap(); if(state.map) state.map.invalidateSize(); updateUserMarker(); }, 100);
-            }
+            if(t === 'map' || t === 'radio') { setTimeout(() => { initMap(); if(state.map) state.map.invalidateSize(); updateUserMarker(); }, 100); }
             refreshUI();
         };
 
-        // Audio
-        window.startRec = async () => {
-            try {
-                const s = await navigator.mediaDevices.getUserMedia({audio:true});
-                state.mediaRecorder = new MediaRecorder(s);
-                state.audioChunks = [];
-                state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
-                state.mediaRecorder.onstop = () => {
-                    const r = new FileReader();
-                    r.readAsDataURL(new Blob(state.audioChunks, {type:'audio/webm'}));
-                    r.onloadend = () => {
-                        state.audioBlobBase64 = r.result;
-                        document.getElementById('audio-ui').innerHTML = `<audio controls src="${r.result}" class="w-full h-8"></audio>`;
-                        document.getElementById('btn-rec').classList.add('hidden');
-                        document.getElementById('del-audio').classList.remove('hidden');
+        // --- GRABACIÓN DE AUDIO (FIXED) ---
+        window.toggleRecording = async () => {
+            if (state.isRecording) {
+                // STOP RECORDING
+                if (state.mediaRecorder && state.mediaRecorder.state === 'recording') {
+                    state.mediaRecorder.stop();
+                }
+            } else {
+                // START RECORDING
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' }); // Prefer webm
+                    state.audioChunks = [];
+                    
+                    state.mediaRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) state.audioChunks.push(e.data);
                     };
-                };
-                state.mediaRecorder.start();
-                document.getElementById('rec-status').classList.remove('hidden');
-            } catch(e) { alert("Micro bloqueado"); }
+
+                    state.mediaRecorder.onstop = () => {
+                        const mimeType = state.audioChunks[0]?.type || 'audio/webm';
+                        const blob = new Blob(state.audioChunks, { type: mimeType });
+                        const reader = new FileReader();
+                        
+                        reader.readAsDataURL(blob);
+                        reader.onloadend = () => {
+                            state.audioBlobBase64 = reader.result;
+                            
+                            // Mostrar Player
+                            const ui = document.getElementById('audio-ui');
+                            ui.innerHTML = `<audio controls src="${state.audioBlobBase64}"></audio>`;
+                            
+                            // UI Updates
+                            document.getElementById('btn-rec').innerHTML = '<i class="fas fa-microphone"></i>';
+                            document.getElementById('btn-rec').classList.remove('bg-red-500', 'animate-pulse-fast', 'text-white');
+                            document.getElementById('btn-rec').classList.add('bg-gray-100', 'text-black', 'hidden'); // Hide mic, show delete
+                            document.getElementById('del-audio').classList.remove('hidden');
+                            document.getElementById('rec-status').classList.add('hidden');
+                            
+                            clearInterval(state.recordInterval);
+                        };
+                        
+                        // Stop tracks
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+
+                    state.mediaRecorder.start();
+                    state.isRecording = true;
+                    state.recordStartTime = Date.now();
+                    
+                    // UI Updates
+                    const btn = document.getElementById('btn-rec');
+                    btn.innerHTML = '<i class="fas fa-stop"></i>';
+                    btn.classList.remove('bg-gray-100', 'text-black');
+                    btn.classList.add('bg-red-500', 'animate-pulse-fast', 'text-white');
+                    
+                    const status = document.getElementById('rec-status');
+                    status.classList.remove('hidden');
+                    status.innerText = "00:00";
+                    
+                    state.recordInterval = setInterval(() => {
+                        const sec = Math.floor((Date.now() - state.recordStartTime) / 1000);
+                        const m = Math.floor(sec / 60).toString().padStart(2,'0');
+                        const s = (sec % 60).toString().padStart(2,'0');
+                        status.innerText = `${m}:${s}`;
+                    }, 1000);
+
+                } catch(e) {
+                    alert("No se pudo acceder al micrófono: " + e.message);
+                }
+            }
         };
-        window.stopRec = () => { if(state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop(); document.getElementById('rec-status').classList.add('hidden'); };
-        window.resetAudio = () => { state.audioBlobBase64=null; document.getElementById('audio-ui').innerHTML=''; document.getElementById('del-audio').classList.add('hidden'); document.getElementById('btn-rec').classList.remove('hidden'); };
+
+        window.resetAudio = () => {
+            state.audioBlobBase64 = null;
+            state.audioChunks = [];
+            state.isRecording = false;
+            if(state.recordInterval) clearInterval(state.recordInterval);
+            
+            document.getElementById('audio-ui').innerHTML = '';
+            document.getElementById('del-audio').classList.add('hidden');
+            document.getElementById('rec-status').classList.add('hidden');
+            
+            const btn = document.getElementById('btn-rec');
+            btn.classList.remove('hidden', 'bg-red-500', 'animate-pulse-fast', 'text-white');
+            btn.classList.add('bg-gray-100', 'text-black');
+            btn.innerHTML = '<i class="fas fa-microphone"></i>';
+        };
 
         // GPS
         navigator.geolocation.watchPosition(
             (pos) => {
                 const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                // Solo actualizar si nos movemos > 2m para evitar jitter
                 if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
                     state.userLocation = newLoc;
                     document.getElementById('gps-loading').classList.add('hidden');
                     refreshUI();
                 }
             },
-            (e) => console.log(e), { enableHighAccuracy: true }
+            () => {}, { enableHighAccuracy: true }
         );
 
-        // Helpers
+        // Helpers UI
         window.toggleModal = (id, show) => { const el = document.getElementById(id); if(show) { el.classList.remove('hidden'); el.querySelector('div').classList.add('animate-slide-up'); } else el.classList.add('hidden'); };
         function getDist(p1, p2) { const R=6371e3, p=Math.PI/180, a=0.5-Math.cos((p2.lat-p1.lat)*p)/2+Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2; return 2*R*Math.asin(Math.sqrt(a)); }
         function formatDist(m) { return m<10?'Aquí':(m>=1000?(m/1000).toFixed(1)+'km':Math.round(m)+'m'); }
@@ -423,11 +435,6 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('rangeSlider').addEventListener('input', e => { state.range = parseInt(e.target.value); document.getElementById('rangeValue').innerText = formatDist(state.range); refreshUI(); });
-            const btnRec = document.getElementById('btn-rec');
-            btnRec.addEventListener('mousedown', startRec);
-            btnRec.addEventListener('mouseup', stopRec);
-            btnRec.addEventListener('touchstart', (e)=>{e.preventDefault();startRec()});
-            btnRec.addEventListener('touchend', (e)=>{e.preventDefault();stopRec()});
             document.querySelectorAll('.cat-btn').forEach(b => b.addEventListener('click', e => {
                 document.querySelectorAll('.cat-btn').forEach(x => x.classList.remove('ring-2','ring-black'));
                 e.currentTarget.classList.add('ring-2','ring-black');
@@ -491,7 +498,7 @@
         <button onclick="toggleModal('modal-new-post',true)" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50"><i class="fas fa-plus text-xl"></i></button>
     </div>
 
-    <!-- MODALS -->
+    <!-- MODAL POST -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center">
         <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up">
             <div class="flex justify-between items-center mb-6"><span class="text-xs font-black text-gray-300 uppercase">Nuevo Whispr</span><button onclick="toggleModal('modal-new-post',false)"><i class="fas fa-times text-gray-500"></i></button></div>
@@ -504,9 +511,15 @@
             </div>
             <input type="hidden" id="post-category" value="gossip">
             <textarea id="post-input" rows="4" class="w-full text-xl font-medium placeholder-gray-300 border-none focus:ring-0 resize-none p-2 bg-transparent" placeholder="Cuenta algo..."></textarea>
+            
             <div class="flex items-center gap-3 mt-4 bg-gray-50 p-3 rounded-2xl">
-                <button id="btn-rec" class="w-10 h-10 rounded-full bg-white text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
-                <div class="flex-1 overflow-hidden"><p id="rec-status" class="text-xs text-red-500 font-bold hidden animate-pulse">Grabando...</p><div id="audio-ui"></div></div>
+                <!-- Botón de Grabar con Toggle -->
+                <button id="btn-rec" onclick="toggleRecording()" class="w-10 h-10 rounded-full bg-gray-100 text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
+                
+                <div class="flex-1 overflow-hidden">
+                    <p id="rec-status" class="text-xs text-red-500 font-bold hidden animate-pulse">00:00</p>
+                    <div id="audio-ui"></div>
+                </div>
                 <button id="del-audio" onclick="resetAudio()" class="hidden text-gray-400"><i class="fas fa-trash"></i></button>
             </div>
             <button id="btn-publish" onclick="publishPost()" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg mt-6">Publicar</button>
