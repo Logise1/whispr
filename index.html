@@ -105,8 +105,8 @@
             isRecording: false,
             recordStartTime: 0,
             recordInterval: null,
-            radioAudioElement: new Audio(), // Reproductor global para la radio
-            hasUserInteracted: false // Para desbloquear audio
+            radioAudioElement: new Audio(),
+            hasUserInteracted: false
         };
 
         // --- AUTH ---
@@ -160,7 +160,6 @@
                     const d = doc.data();
                     const ts = d.timestamp ? d.timestamp.toDate() : new Date();
                     const exp = d.expiresAt ? d.expiresAt.toDate() : null;
-                    // Asegurar que lat/lng son números
                     return { 
                         id: doc.id, 
                         ...d, 
@@ -186,7 +185,6 @@
 
         function renderFeed() {
             const container = document.getElementById('feed-container');
-            // Mostrar mensajes si el GPS aún no está listo
             if (!state.userLocation) {
                 container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Esperando GPS...</div>`;
                 return;
@@ -233,7 +231,6 @@
         // --- MAPA ---
         function initMap() {
             if(state.map) return;
-            // Fallback location to allow map rendering before GPS lock
             const lat = state.userLocation ? state.userLocation.lat : 40.4168;
             const lng = state.userLocation ? state.userLocation.lng : -3.7038;
             state.map = L.map('map-view', { zoomControl: false }).setView([lat, lng], 18);
@@ -266,8 +263,7 @@
             if(state.currentTab === 'radio') state.map.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true });
         }
 
-        // --- RADIO (3m, Fixed) ---
-        // Helper para desbloquear audio en móviles
+        // --- RADIO (7 METROS) ---
         window.warmUpAudio = () => {
             if (state.hasUserInteracted) return;
             state.radioAudioElement.play().then(() => {
@@ -279,8 +275,9 @@
         function checkRadio() {
             if(state.isRadioPlaying || !state.userLocation) return;
             
+            // FILTRO DE DISTANCIA AUMENTADO A 7 METROS
             const candidates = state.posts
-                .filter(p => p.audio && p.distance < 3 && !state.playedAudios.has(p.id))
+                .filter(p => p.audio && p.distance < 7 && !state.playedAudios.has(p.id))
                 .sort((a,b) => a.distance - b.distance);
 
             if(candidates.length > 0) {
@@ -292,18 +289,16 @@
                 info.classList.remove('hidden');
                 info.querySelector('.author').innerText = post.authorName;
                 
-                // Usar el elemento de audio global
                 state.radioAudioElement.src = post.audio;
-                
                 state.radioAudioElement.onended = () => {
                     state.isRadioPlaying = false;
                     info.classList.add('hidden');
-                    checkRadio(); // Buscar siguiente
+                    checkRadio();
                 };
                 
                 state.radioAudioElement.play().catch(e => {
                     console.log("Auto-play error:", e);
-                    state.isRadioPlaying = false; // Resetear flag si falla
+                    state.isRadioPlaying = false;
                 });
                 
                 if(navigator.vibrate) navigator.vibrate(50);
@@ -315,7 +310,6 @@
             const text = document.getElementById('post-input').value.trim();
             const btn = document.getElementById('btn-publish');
             
-            // Validar ubicación EXACTA antes de permitir publicar
             if(!state.userLocation) return alert("Esperando señal GPS precisa...");
             if(!text && !state.audioBlobBase64) return alert("Escribe o graba algo.");
             
@@ -325,8 +319,8 @@
                 await addDoc(collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts'), {
                     text: text,
                     audio: state.audioBlobBase64 || null,
-                    lat: parseFloat(state.userLocation.lat), // Forzar numérico
-                    lng: parseFloat(state.userLocation.lng), // Forzar numérico
+                    lat: parseFloat(state.userLocation.lat),
+                    lng: parseFloat(state.userLocation.lng),
                     category: 'gossip',
                     authorUid: state.user.uid,
                     authorName: state.user.displayName,
@@ -353,7 +347,6 @@
         // --- UTILS ---
         window.switchTab = (t) => {
             state.currentTab = t;
-            // Intentar desbloquear audio al cambiar de tab (interacción usuario)
             warmUpAudio();
             
             ['feed','radio','map'].forEach(x => {
@@ -431,30 +424,22 @@
             btn.innerHTML = '<i class="fas fa-microphone"></i>';
         };
 
-        // GPS con "watchPosition" para actualizar location constantemente
         navigator.geolocation.watchPosition(
             (pos) => {
                 const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                
-                // Actualizar siempre si es null, o si nos movemos > 2m
                 if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
                     state.userLocation = newLoc;
                     document.getElementById('gps-loading').classList.add('hidden');
-                    
-                    // Habilitar botón de publicar si estaba esperando
+                    // Habilitar botón publicar si estaba esperando
                     const pubBtn = document.getElementById('btn-publish');
-                    if(pubBtn && pubBtn.disabled && pubBtn.innerText === "Esperando GPS...") {
+                    if(pubBtn && pubBtn.innerText === "Esperando GPS...") {
                         pubBtn.disabled = false;
                         pubBtn.innerText = "Publicar";
                     }
-                    
                     refreshUI();
                 }
             },
-            () => { 
-                // Error GPS
-                document.getElementById('gps-loading').innerHTML = '<p class="text-xs text-red-500">Activa el GPS</p>';
-            }, 
+            () => { document.getElementById('gps-loading').innerHTML = '<p class="text-xs text-red-500">GPS Error</p>'; }, 
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
 
@@ -463,16 +448,10 @@
             if(show) { 
                 el.classList.remove('hidden'); 
                 el.querySelector('div').classList.add('animate-slide-up'); 
-                // Validar GPS al abrir modal
                 if(id === 'modal-new-post') {
                     const btn = document.getElementById('btn-publish');
-                    if(!state.userLocation) {
-                        btn.disabled = true;
-                        btn.innerText = "Esperando GPS...";
-                    } else {
-                        btn.disabled = false;
-                        btn.innerText = "Publicar";
-                    }
+                    if(!state.userLocation) { btn.disabled = true; btn.innerText = "Esperando GPS..."; } 
+                    else { btn.disabled = false; btn.innerText = "Publicar"; }
                 }
             } else el.classList.add('hidden'); 
         };
@@ -482,7 +461,7 @@
         function escapeHtml(t) { return t?t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])):''; }
         function getTimeAgo(d) { const s=Math.floor((new Date()-d)/1000); if(s<60)return'ahora'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
 
-        // Event Listeners globales para interacciones
+        // Eventos Globales
         document.addEventListener('click', warmUpAudio);
         document.addEventListener('touchstart', warmUpAudio);
 
