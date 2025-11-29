@@ -31,7 +31,6 @@
                         'fade-in': 'fadeIn 0.4s ease-out forwards',
                         'slide-up': 'slideUp 0.3s ease-out forwards',
                         'pulse-radar': 'pulseRadar 2s infinite',
-                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                     },
                     keyframes: {
                         fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
@@ -62,7 +61,7 @@
         audio::-webkit-media-controls-play-button { background-color: #e5e7eb; border-radius: 50%; }
     </style>
 
-    <!-- FIREBASE SDKs -->
+    <!-- FIREBASE -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
@@ -83,19 +82,17 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // --- ESTADO GLOBAL ---
         window.state = {
             user: null,
             userLocation: null,
             range: 50,
-            activeFilter: 'all',
             currentTab: 'feed',
             posts: [],
             map: null,
             markers: null,
             userMarker: null,
             isRadioPlaying: false,
-            radioEnabled: false, // Permiso explícito
+            radioEnabled: false,
             playedAudios: new Set(),
             audioBlobBase64: null,
             mediaRecorder: null,
@@ -103,8 +100,8 @@
             isRecording: false,
             recordStartTime: 0,
             recordInterval: null,
-            // Reproductor Global Único
-            globalAudio: new Audio()
+            radioAudioElement: new Audio(),
+            hasUserInteracted: false
         };
 
         // --- AUTH ---
@@ -177,6 +174,7 @@
             state.posts.forEach(p => p.distance = getDist(currentLoc, p));
             
             if(state.currentTab === 'feed') renderFeed();
+            // Actualizar siempre el mapa si está visible
             if(state.currentTab === 'map' || state.currentTab === 'radio') updateMapMarkers();
             if(state.currentTab === 'radio' && state.radioEnabled) checkRadio();
         };
@@ -184,7 +182,7 @@
         function renderFeed() {
             const container = document.getElementById('feed-container');
             if (!state.userLocation) {
-                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Buscando GPS...</div>`;
+                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Esperando GPS...</div>`;
                 return;
             }
             const filtered = state.posts
@@ -198,12 +196,6 @@
             }
             filtered.forEach(p => container.appendChild(createCard(p)));
             container.appendChild(document.createElement('div')).className = 'h-32';
-        }
-
-        // Reproducir audio en LISTA (usando el global para evitar solapamientos)
-        window.playAudioInList = (url) => {
-            state.globalAudio.src = url;
-            state.globalAudio.play();
         }
 
         function createCard(p) {
@@ -222,7 +214,7 @@
                 <div class="mb-4 pl-10">
                     <div class="w-1.5 h-1.5 rounded-full mb-2 bg-black"></div>
                     <p class="text-gray-800 text-[15px] whitespace-pre-line">${escapeHtml(p.text)}</p>
-                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="playAudioInList('${p.audio}')" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer hover:scale-105 transition-transform"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
+                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="state.radioAudioElement.src='${p.audio}'; state.radioAudioElement.play()" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
                 </div>
                 <div class="flex items-center pl-10 gap-6">
                     <button onclick="toggleLike('${p.id}')" class="flex items-center gap-1.5 ${isLiked ? 'text-orange-500' : 'text-gray-400'}"><i class="${isLiked ? 'fas' : 'fas'} fa-fire text-lg"></i><span class="text-xs font-bold">${p.likes ? p.likes.length : 0}</span></button>
@@ -241,6 +233,7 @@
             state.markers = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) });
             state.map.addLayer(state.markers);
             updateUserMarker();
+            updateMapMarkers(); // Importante inicializar marcadores
         }
 
         function updateMapMarkers() {
@@ -261,8 +254,7 @@
             
             if(state.userMarker) {
                 state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]);
-                // Forzar actualización de icono si cambia el modo
-                state.userMarker.setIcon(icon);
+                state.userMarker.setIcon(icon); // Force update icon class
             } else {
                 state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.map);
             }
@@ -271,22 +263,17 @@
 
         // --- RADIO (7 METROS) ---
         window.activateRadio = () => {
-            // Reproducir sonido silencioso para desbloquear el AudioContext del navegador
-            // Esto es CRUCIAL para que luego suene solo
             const unlock = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAgAAAA==");
             unlock.play().then(() => {
                 state.radioEnabled = true;
                 document.getElementById('radio-start-overlay').classList.add('hidden');
-                checkRadio(); // Primer chequeo inmediato
-            }).catch(e => {
-                alert("Error: Toca la pantalla para permitir el audio.");
+                checkRadio(); 
             });
         };
 
         function checkRadio() {
             if(state.isRadioPlaying || !state.userLocation || !state.radioEnabled) return;
             
-            // Buscar audios NO reproducidos a < 7 metros
             const candidates = state.posts
                 .filter(p => p.audio && p.distance < 7 && !state.playedAudios.has(p.id))
                 .sort((a,b) => a.distance - b.distance);
@@ -300,27 +287,19 @@
                 info.classList.remove('hidden');
                 info.querySelector('.author').innerText = post.authorName || 'Anon';
                 
-                // Usar el reproductor global
-                state.globalAudio.src = post.audio;
-                
-                state.globalAudio.onended = () => {
+                state.radioAudioElement.src = post.audio;
+                state.radioAudioElement.onended = () => {
                     state.isRadioPlaying = false;
                     info.classList.add('hidden');
-                    checkRadio(); // Buscar el siguiente en la cola
+                    checkRadio();
                 };
-                
-                state.globalAudio.onerror = () => {
-                    state.isRadioPlaying = false; // Liberar si falla
-                };
-
-                state.globalAudio.play().catch(e => {
-                    console.error("Autoplay bloqueado:", e);
+                state.radioAudioElement.play().catch(() => {
                     state.isRadioPlaying = false;
-                    state.radioEnabled = false; // Resetear para forzar botón de nuevo
                     document.getElementById('radio-start-overlay').classList.remove('hidden');
+                    state.radioEnabled = false;
                 });
                 
-                if(navigator.vibrate) navigator.vibrate([50, 100, 50]);
+                if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
             }
         }
 
@@ -366,25 +345,30 @@
         // --- UTILS ---
         window.switchTab = (t) => {
             state.currentTab = t;
-            
-            // Pausar audio si salimos de la pestaña
-            if(t !== 'radio' && state.isRadioPlaying) {
-                state.globalAudio.pause();
-                state.isRadioPlaying = false;
-                document.getElementById('radio-playing-info').classList.add('hidden');
+            // Warm up audio on tab switch interaction
+            if (state.radioAudioElement && state.radioAudioElement.paused) {
+               // Just interacting allows future playback context
             }
 
             ['feed','radio','map'].forEach(x => {
                 document.getElementById(`tab-${x}`).classList.toggle('text-black', x===t);
                 document.getElementById(`tab-${x}`).classList.toggle('text-gray-400', x!==t);
             });
+            
             document.getElementById('feed-container').classList.toggle('hidden', t!=='feed');
             document.getElementById('map-view-container').classList.toggle('hidden', t==='feed');
             document.getElementById('radio-badge').classList.toggle('hidden', t!=='radio');
-            document.getElementById('radio-start-overlay').classList.add('hidden'); 
+            document.getElementById('radio-start-overlay').classList.add('hidden'); // Reset
 
             if(t === 'map' || t === 'radio') { 
-                setTimeout(() => { initMap(); if(state.map) state.map.invalidateSize(); updateUserMarker(); }, 100); 
+                setTimeout(() => { 
+                    initMap(); 
+                    if(state.map) {
+                        state.map.invalidateSize(); 
+                        updateUserMarker();
+                        updateMapMarkers(); // Asegurar que los puntos se pintan al cambiar
+                    }
+                }, 100); 
             }
             
             if(t === 'radio') {
@@ -393,6 +377,11 @@
                 } else {
                     checkRadio();
                 }
+            } else {
+                // Pausar radio si salimos
+                state.radioAudioElement.pause();
+                state.isRadioPlaying = false;
+                document.getElementById('radio-playing-info').classList.add('hidden');
             }
             refreshUI();
         };
@@ -467,7 +456,6 @@
                 if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
                     state.userLocation = newLoc;
                     document.getElementById('gps-loading').classList.add('hidden');
-                    
                     const pubBtn = document.getElementById('btn-publish');
                     if(pubBtn && pubBtn.innerText === "Esperando GPS...") {
                         pubBtn.disabled = false;
@@ -534,9 +522,9 @@
             </div>
 
             <!-- Start Radio Button (PARA DESBLOQUEAR AUDIO) -->
-            <div id="radio-start-overlay" class="hidden absolute inset-0 z-[600] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-                <button onclick="activateRadio()" class="bg-black text-white px-8 py-4 rounded-full font-bold text-lg shadow-2xl animate-pulse-radar border-2 border-white/20">
-                    <i class="fas fa-power-off mr-2"></i> ENCENDER RADIO
+            <div id="radio-start-overlay" class="hidden absolute bottom-32 left-1/2 -translate-x-1/2 z-[600]">
+                <button onclick="activateRadio()" class="bg-black text-white px-6 py-3 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-pulse">
+                    <i class="fas fa-power-off"></i> ACTIVAR FRECUENCIA
                 </button>
             </div>
 
