@@ -5,18 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
     
-    <!-- CSP -->
+    <!-- CSP Segura para tu Worker -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' *; style-src 'self' 'unsafe-inline' *; connect-src 'self' https://whispr.logise1123.workers.dev *;">
     
     <title>Whispr</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Mapa -->
+    <!-- Mapa Ligeros -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Clusters (sin estilos pesados extra) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css"/>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -31,17 +31,16 @@
                     boxShadow: {
                         'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
                         'float': '0 10px 30px -5px rgba(0, 0, 0, 0.1)',
-                        'glow': '0 0 20px rgba(16, 185, 129, 0.5)'
                     },
                     animation: {
                         'fade-in': 'fadeIn 0.4s ease-out forwards',
                         'slide-up': 'slideUp 0.3s ease-out forwards',
-                        'pulse-radar': 'pulseRadar 2s infinite'
+                        'pulse-slow': 'pulseSlow 3s infinite'
                     },
                     keyframes: {
                         fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
                         slideUp: { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } },
-                        pulseRadar: { '0%': { transform: 'scale(0.8)', opacity: '0.7' }, '100%': { transform: 'scale(2.5)', opacity: '0' } }
+                        pulseSlow: { '0%': { transform: 'scale(0.8)', opacity: '0.5' }, '50%': { transform: 'scale(1.1)', opacity: '0.2' }, '100%': { transform: 'scale(0.8)', opacity: '0.5' } }
                     }
                 }
             }
@@ -72,60 +71,56 @@
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
         #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
+        
+        /* Clusters minimalistas */
         .custom-cluster-icon div { 
-            width: 36px; height: 36px; line-height: 36px; text-align: center; 
-            background: #111; color: white; border-radius: 50%; border: 3px solid white; 
-            font-weight: 700; font-size: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            width: 32px; height: 32px; line-height: 32px; text-align: center; 
+            background: #111; color: white; border-radius: 50%; 
+            font-weight: 700; font-size: 11px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            border: 2px solid white;
         }
+        
         audio::-webkit-media-controls-panel { background-color: #f3f4f6; }
         audio::-webkit-media-controls-play-button { background-color: #e5e7eb; border-radius: 50%; }
 
-        /* User Marker Pulse */
+        /* Marcadores Pulsantes */
         .user-pulse {
-            width: 20px; height: 20px;
+            width: 16px; height: 16px;
             background: #2563EB;
-            border: 3px solid white;
+            border: 2px solid white;
             border-radius: 50%;
             box-shadow: 0 0 0 rgba(37, 99, 235, 0.4);
-            animation: userPulse 2s infinite;
+            animation: pulse-ring 2s infinite;
         }
         .radio-pulse {
-            width: 20px; height: 20px;
-            background: #10B981; /* Green for radio */
-            border: 3px solid white;
+            width: 16px; height: 16px;
+            background: #10B981;
+            border: 2px solid white;
             border-radius: 50%;
             box-shadow: 0 0 0 rgba(16, 185, 129, 0.4);
-            animation: radioPulse 1.5s infinite;
+            animation: pulse-ring-green 2s infinite;
         }
-        @keyframes userPulse {
-            0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
-            70% { box-shadow: 0 0 0 20px rgba(37, 99, 235, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
-        }
-        @keyframes radioPulse {
-            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { box-shadow: 0 0 0 30px rgba(16, 185, 129, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
+        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
+        @keyframes pulse-ring-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
     </style>
 
     <script>
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
         
-        // Categorías sin etiquetas de texto, solo color
+        // Categorías: Solo colores, sin texto
         const CATEGORIES = {
-            gossip: { label: '', color: 'bg-zinc-900' },
-            humor:  { label: '', color: 'bg-yellow-300' },
-            love:   { label: '', color: 'bg-rose-500' },
-            idea:   { label: '', color: 'bg-blue-500' },
-            promo:  { label: '', color: 'bg-emerald-500' }
+            gossip: { color: 'bg-zinc-900' },
+            humor:  { color: 'bg-yellow-400' },
+            love:   { color: 'bg-rose-500' },
+            idea:   { color: 'bg-blue-500' },
+            promo:  { color: 'bg-emerald-500' }
         };
 
         let state = {
             userLocation: null,
             lastFetchLocation: null,
-            range: 50, // Rango visual (filtro lista)
-            fetchRange: 5000, // Rango de datos (lo que pedimos al servidor para el mapa)
+            range: 50, // Rango visual del slider (10m - 200m)
+            fetchRange: 5000, // Rango de datos del mapa (5km siempre)
             authToken: null,
             currentUser: null,
             pseudonym: null,
@@ -182,17 +177,16 @@
             on('tab-radio', 'click', () => switchTab('radio'));
             on('tab-map', 'click', () => switchTab('map'));
 
-            // Slider
+            // Slider: 10m a 200m
             const slider = document.getElementById('rangeSlider');
             if(slider) {
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
                     if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    // No filtramos el mapa por el slider, el mapa siempre muestra TODO lo cargado
                 });
-                // Recargar datos si cambiamos drásticamente el slider (opcional, pero mantenemos fetch amplio)
-                slider.addEventListener('change', () => fetchPosts()); 
+                // Recargar datos al soltar para asegurar frescura, pero manteniendo rango amplio de fetch
+                slider.addEventListener('change', () => fetchPosts());
             }
 
             // Acciones
@@ -201,7 +195,7 @@
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Audio
+            // Audio Recorder
             const btnRecord = document.getElementById('btn-record');
             if(btnRecord){
                 const startRec = (e) => { e.preventDefault(); startRecording(); };
@@ -225,7 +219,7 @@
                     
                     state.activeFilter = e.currentTarget.dataset.filter;
                     if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    else updateMapMarkers(state.loadedPosts); // El filtro de categoría sí afecta al mapa
+                    else updateMapMarkers(state.loadedPosts);
                 });
             });
 
@@ -248,36 +242,42 @@
             if(el) el.addEventListener(evt, handler);
         }
 
-        // --- AUTH ---
+        // --- AUTH & SERVER COMMUNICATION ---
         async function handleAuthSubmit() {
             const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
             const passIn = document.getElementById('auth-password').value.trim();
             if(!userIn || !passIn) return alert("Faltan datos");
 
             const btn = document.getElementById('auth-submit');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            const originalText = btn.innerText;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Conectando...';
             btn.disabled = true;
 
             try {
-                let res = await fetch(`${WORKER_URL}/api/auth/login`, {
+                // Paso 1: Intentar LOGIN
+                let res = await fetchWithTimeout(`${WORKER_URL}/api/auth/login`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username: userIn, password: passIn})
-                });
+                }, 8000); // 8s timeout para cold start
                 
+                // Paso 2: Si 401/404, preguntar Registro
                 if(!res.ok) {
                     const confirmRegister = confirm("Usuario no encontrado o contraseña incorrecta.\n¿Crear cuenta nueva?");
                     if(confirmRegister) {
-                        res = await fetch(`${WORKER_URL}/api/auth/register`, {
+                        btn.innerHTML = '<i class="fas fa-user-plus"></i> Registrando...';
+                        res = await fetchWithTimeout(`${WORKER_URL}/api/auth/register`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({username: userIn, password: passIn})
-                        });
+                        }, 8000);
+                    } else {
+                        throw new Error("Cancelado por usuario");
                     }
                 }
 
                 const data = await res.json();
-                if(!res.ok) throw new Error(data.error || "Error auth");
+                if(!res.ok) throw new Error(data.error || "Error de conexión");
                 
                 state.authToken = data.token;
                 state.currentUser = data.username;
@@ -286,8 +286,20 @@
                 localStorage.setItem('whispr_username', data.username);
                 initApp();
 
-            } catch(e) { alert(e.message); } 
-            finally { btn.innerHTML = 'Entrar / Registrar'; btn.disabled = false; }
+            } catch(e) { 
+                alert(e.message === "Failed to fetch" ? "Error de red: El servidor tarda en responder. Intenta de nuevo." : e.message); 
+            } finally { 
+                btn.innerHTML = originalText; 
+                btn.disabled = false; 
+            }
+        }
+
+        async function fetchWithTimeout(resource, options = {}, timeout = 8000) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            const response = await fetch(resource, { ...options, signal: controller.signal });
+            clearTimeout(id);
+            return response;
         }
 
         function logout() { localStorage.clear(); location.reload(); }
@@ -302,24 +314,27 @@
             navigator.geolocation.watchPosition(
                 (pos) => {
                     const firstTime = !state.userLocation;
-                    state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                    loading.classList.add('hidden');
+                    const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     
-                    updateDistancesInUI(); // Update UI numbers
-                    
-                    // Solo actualizamos el icono del usuario en movimiento
-                    if((state.currentTab === 'map' || state.currentTab === 'radio') && state.mapInstance) {
-                        updateUserMarker();
-                    }
+                    // Actualización inteligente: solo si nos movemos > 2 metros para evitar jitter
+                    if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
+                        state.userLocation = newLoc;
+                        loading.classList.add('hidden');
+                        
+                        updateDistancesInUI();
+                        
+                        // Actualizar marcador usuario
+                        if((state.currentTab === 'map' || state.currentTab === 'radio') && state.mapInstance) {
+                            updateUserMarker();
+                        }
 
-                    // Radio Check
-                    if(state.currentTab === 'radio') {
-                        checkRadioProximity();
-                    }
+                        // Lógica RADIO
+                        if(state.currentTab === 'radio') checkRadioProximity();
 
-                    // Fetch de datos si nos hemos movido significativamente (50m) o es la primera vez
-                    if (firstTime || !state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 50) {
-                        fetchPosts();
+                        // Fetch datos: Si es la primera vez o nos movimos > 100m
+                        if (firstTime || !state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 100) {
+                            fetchPosts();
+                        }
                     }
                 },
                 (err) => console.warn(err),
@@ -327,17 +342,20 @@
             );
         }
 
+        // --- RADIO (3m & Sequential) ---
         function checkRadioProximity() {
             if(state.isRadioPlaying || !state.loadedPosts || !state.userLocation) return;
             
-            // RADIO DISTANCE: < 3 METROS (Rango cercano)
+            // Radio: 3 metros
             const candidates = state.loadedPosts.filter(p => 
                 p.audio && 
-                getDist(state.userLocation, p) < 3 && 
+                getDist(state.userLocation, p) <= 3 && 
                 !state.playedAudios.has(p.id)
             );
             
             if(candidates.length > 0) {
+                // Ordenar por cercanía y reproducir el más cercano
+                candidates.sort((a,b) => getDist(state.userLocation, a) - getDist(state.userLocation, b));
                 playRadioTrack(candidates[0]);
             } else {
                 hideRadioPlaying();
@@ -353,11 +371,11 @@
             player.onended = () => {
                 state.isRadioPlaying = false;
                 hideRadioPlaying();
-                checkRadioProximity(); // Check next
+                checkRadioProximity(); // Check next in queue
             };
             
             player.onerror = () => {
-                state.isRadioPlaying = false;
+                state.isRadioPlaying = false; // Release lock on error
             };
 
             player.play().then(() => {
@@ -371,13 +389,12 @@
         function showRadioPlaying(post) {
             const el = document.getElementById('radio-playing-info');
             el.innerHTML = `
-                <div class="animate-slide-up bg-black/90 text-white backdrop-blur rounded-2xl p-4 shadow-xl border border-emerald-500/50">
-                    <div class="flex items-center gap-2 mb-1">
-                        <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                        <p class="text-[10px] font-bold text-emerald-400 uppercase">REPRODUCIENDO</p>
+                <div class="animate-slide-up bg-black/80 backdrop-blur rounded-full px-5 py-2 shadow-xl border border-emerald-500/50 flex items-center gap-3">
+                    <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <div class="flex flex-col">
+                        <span class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none">ON AIR</span>
+                        <span class="text-xs font-bold text-white leading-none mt-0.5 max-w-[150px] truncate">${escapeHtml(post.pseudonym)}</span>
                     </div>
-                    <p class="font-bold text-sm mb-1">${escapeHtml(post.pseudonym)}</p>
-                    <p class="text-xs text-gray-400 line-clamp-2">${escapeHtml(post.text)}</p>
                 </div>
             `;
             el.classList.remove('hidden');
@@ -391,20 +408,16 @@
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
             try {
-                // Fetch SIEMPRE amplio (5000m) para llenar el mapa, independientemente del slider
-                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.fetchRange}`, {
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
+                // Fetch SIEMPRE amplio (fetchRange=5000m) para el mapa, aunque el slider sea pequeño
+                const res = await fetchWithTimeout(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.fetchRange}`, {}, 8000);
                 if(res.status === 401) return logout();
                 if(res.ok) {
                     const data = await res.json();
                     state.loadedPosts = Array.isArray(data) ? data : [];
                     state.lastFetchLocation = {...state.userLocation};
                     
-                    // Actualizamos las vistas según la pestaña actual
                     if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    // Siempre actualizamos marcadores en segundo plano para que el mapa esté listo
-                    updateMapMarkers(state.loadedPosts); 
+                    updateMapMarkers(state.loadedPosts); // Actualizar mapa siempre en background
                 }
             } catch(e) {}
         }
@@ -431,6 +444,7 @@
                 radioInfo.classList.add('hidden');
                 renderPostsSmart(state.loadedPosts);
             } else {
+                // Mapa y Radio comparten vista de mapa
                 feedContainer.classList.add('hidden');
                 mapContainer.classList.remove('hidden');
                 
@@ -451,18 +465,18 @@
 
         function renderPostsSmart(posts) {
             const feed = document.getElementById('feed-container');
-            // AQUÍ aplicamos el filtro del slider para la LISTA
+            // Filtro por SLIDER para la lista
             let filtered = posts.filter(p => {
                 p.distance = getDist(state.userLocation, p);
                 if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
-                return p.distance <= state.range; // Solo los que entran en el rango seleccionado
+                return p.distance <= state.range;
             });
 
             filtered.sort((a,b) => a.distance - b.distance);
             feed.innerHTML = ''; 
             
             if(filtered.length === 0) {
-                feed.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">Nada en este rango.</div>`;
+                feed.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Nada en ${state.range}m.</div>`;
                 return;
             }
 
@@ -480,6 +494,7 @@
             const fireCount = p.reactions && p.reactions.fire ? p.reactions.fire.length : 0;
             const userFired = p.reactions && p.reactions.fire && p.reactions.fire.includes(state.currentUser);
 
+            // DISEÑO MINIMALISTA: Sin etiquetas de categoría, solo punto de color
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-3">
                     <div class="flex items-center gap-2">
@@ -495,7 +510,7 @@
                 </div>
                 <div class="mb-4 pl-10 relative">
                     ${p.audio ? `<div class="absolute -left-8 top-1 w-0.5 h-full bg-gray-100"></div>` : ''}
-                    <div class="w-2 h-2 rounded-full mb-2 ${cat.color}"></div>
+                    <div class="w-1.5 h-1.5 rounded-full mb-2 ${cat.color}"></div>
                     <p class="text-gray-800 text-[15px] font-normal leading-relaxed whitespace-pre-line">${escapeHtml(p.text)}</p>
                     ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div class="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white mr-3 shrink-0"><i class="fas fa-play text-xs pl-0.5"></i></div><audio controls src="${p.audio}" class="w-full h-8 opacity-80"></audio></div>` : ''}
                 </div>
@@ -562,23 +577,30 @@
             const text = document.getElementById('post-input').value.trim();
             if(!text && !state.audioBlobBase64) return;
             const btn = document.getElementById('btn-publish');
-            btn.disabled = true; btn.innerText = "Enviando...";
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Publicando...';
             try {
-                await fetch(`${WORKER_URL}/api/posts`, { method: 'POST', headers: {'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify({ text, audio: state.audioBlobBase64, category: document.getElementById('post-category').value, lat: state.userLocation.lat, lng: state.userLocation.lng, pseudonym: state.pseudonym, expiresIn: 24 }) });
+                await fetchWithTimeout(`${WORKER_URL}/api/posts`, { method: 'POST', headers: {'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify({ text, audio: state.audioBlobBase64, category: document.getElementById('post-category').value, lat: state.userLocation.lat, lng: state.userLocation.lng, pseudonym: state.pseudonym, expiresIn: 24 }) }, 8000);
                 toggleModal('modal-new-post', false); document.getElementById('post-input').value = ''; resetAudio(); setTimeout(fetchPosts, 1000);
-            } catch(e) { alert("Error al publicar"); } 
+            } catch(e) { alert("Error al publicar. Revisa tu conexión."); } 
             finally { btn.disabled = false; btn.innerText = "Publicar Ahora"; }
         }
 
-        // --- MAPA ---
+        // --- MAPA (OPTIMIZADO PARA NO RE-RENDERIZAR SIEMPRE) ---
         function initMap() {
             if (state.mapInstance) return;
+            
+            // Fallback location to prevent crash before GPS
             const lat = state.userLocation ? state.userLocation.lat : 40.4168; 
             const lng = state.userLocation ? state.userLocation.lng : -3.7038;
+
             state.mapInstance = L.map('map-view', { zoomControl: false, attributionControl: false }).setView([lat, lng], 18);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.mapInstance);
             
-            state.markerCluster = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(40, 40) }) });
+            state.markerCluster = L.markerClusterGroup({ 
+                showCoverageOnHover: false, 
+                // Cluster minimalista
+                iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) 
+            });
             state.mapInstance.addLayer(state.markerCluster);
             updateUserMarker();
             updateMapMarkers(state.loadedPosts);
@@ -588,19 +610,26 @@
             if(!state.mapInstance || !state.userLocation) return;
             const pulseClass = state.currentTab === 'radio' ? 'radio-pulse' : 'user-pulse';
             const icon = L.divIcon({ className: 'bg-transparent border-none', html: `<div class="${pulseClass}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
-            if(state.userMarker) { state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]); state.userMarker.setIcon(icon); } 
+            
+            if(state.userMarker) { 
+                state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]); 
+                // Solo cambiar icono si cambia de tab
+                if(state.userMarker._icon && !state.userMarker._icon.innerHTML.includes(pulseClass)) state.userMarker.setIcon(icon);
+            } 
             else { state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.mapInstance); }
-            if(state.currentTab === 'radio') state.mapInstance.setView([state.userLocation.lat, state.userLocation.lng], 19, { animate: true });
+            
+            if(state.currentTab === 'radio') state.mapInstance.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true, duration: 1 });
         }
 
         function updateMapMarkers(posts) {
             if (!state.markerCluster) return;
+            
+            // MAPA MUESTRA TODOS LOS PUNTOS CARGADOS (SIN FILTRO DE RANGO)
             state.markerCluster.clearLayers();
-            // IMPORTANTE: Aquí NO filtramos por distancia, mostramos TODO lo que haya traído el fetch
             const filtered = posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
             
             filtered.forEach(p => {
-                // Sin popup de texto por defecto, simple
+                // Sin popup, solo marcador simple negro
                 const marker = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
                 state.markerCluster.addLayer(marker);
             });
