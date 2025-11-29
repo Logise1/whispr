@@ -112,7 +112,7 @@
     <script>
         const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
         
-        // Colores para las categorías (solo colores, sin texto en labels)
+        // Categorías sin etiquetas de texto, solo color
         const CATEGORIES = {
             gossip: { label: '', color: 'bg-zinc-900' },
             humor:  { label: '', color: 'bg-yellow-300' },
@@ -124,7 +124,8 @@
         let state = {
             userLocation: null,
             lastFetchLocation: null,
-            range: 50, // Default 50m
+            range: 50, // Rango visual (filtro lista)
+            fetchRange: 5000, // Rango de datos (lo que pedimos al servidor para el mapa)
             authToken: null,
             currentUser: null,
             pseudonym: null,
@@ -176,20 +177,22 @@
             on('btn-logout', 'click', logout);
             on('btn-profile', 'click', openProfile);
             
-            // TABS NAVIGATION
+            // Tabs
             on('tab-feed', 'click', () => switchTab('feed'));
             on('tab-radio', 'click', () => switchTab('radio'));
             on('tab-map', 'click', () => switchTab('map'));
 
-            // Slider Rango: 10m a 200m
+            // Slider
             const slider = document.getElementById('rangeSlider');
             if(slider) {
                 slider.addEventListener('input', (e) => {
                     state.range = parseInt(e.target.value);
                     document.getElementById('rangeValue').innerText = formatDistance(state.range);
                     if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
+                    // No filtramos el mapa por el slider, el mapa siempre muestra TODO lo cargado
                 });
-                slider.addEventListener('change', () => fetchPosts());
+                // Recargar datos si cambiamos drásticamente el slider (opcional, pero mantenemos fetch amplio)
+                slider.addEventListener('change', () => fetchPosts()); 
             }
 
             // Acciones
@@ -198,7 +201,7 @@
             on('btn-publish', 'click', publishPost);
             on('auth-submit', 'click', handleAuthSubmit);
             
-            // Audio Recorder
+            // Audio
             const btnRecord = document.getElementById('btn-record');
             if(btnRecord){
                 const startRec = (e) => { e.preventDefault(); startRecording(); };
@@ -222,7 +225,7 @@
                     
                     state.activeFilter = e.currentTarget.dataset.filter;
                     if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    else updateMapMarkers(state.loadedPosts);
+                    else updateMapMarkers(state.loadedPosts); // El filtro de categoría sí afecta al mapa
                 });
             });
 
@@ -252,7 +255,6 @@
             if(!userIn || !passIn) return alert("Faltan datos");
 
             const btn = document.getElementById('auth-submit');
-            const originalText = btn.innerText;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
 
@@ -285,7 +287,7 @@
                 initApp();
 
             } catch(e) { alert(e.message); } 
-            finally { btn.innerHTML = originalText; btn.disabled = false; }
+            finally { btn.innerHTML = 'Entrar / Registrar'; btn.disabled = false; }
         }
 
         function logout() { localStorage.clear(); location.reload(); }
@@ -303,18 +305,19 @@
                     state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                     loading.classList.add('hidden');
                     
-                    updateDistancesInUI();
+                    updateDistancesInUI(); // Update UI numbers
                     
-                    // Actualizar mapa si está abierto
+                    // Solo actualizamos el icono del usuario en movimiento
                     if((state.currentTab === 'map' || state.currentTab === 'radio') && state.mapInstance) {
                         updateUserMarker();
                     }
 
-                    // Lógica RADIO automática
+                    // Radio Check
                     if(state.currentTab === 'radio') {
                         checkRadioProximity();
                     }
 
+                    // Fetch de datos si nos hemos movido significativamente (50m) o es la primera vez
                     if (firstTime || !state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 50) {
                         fetchPosts();
                     }
@@ -327,10 +330,10 @@
         function checkRadioProximity() {
             if(state.isRadioPlaying || !state.loadedPosts || !state.userLocation) return;
             
-            // RADIO DISTANCE: < 1 METRO (Casi tocando el punto)
+            // RADIO DISTANCE: < 3 METROS (Rango cercano)
             const candidates = state.loadedPosts.filter(p => 
                 p.audio && 
-                getDist(state.userLocation, p) < 1 && // UMBRAL REDUCIDO A 1M
+                getDist(state.userLocation, p) < 3 && 
                 !state.playedAudios.has(p.id)
             );
             
@@ -350,7 +353,7 @@
             player.onended = () => {
                 state.isRadioPlaying = false;
                 hideRadioPlaying();
-                checkRadioProximity();
+                checkRadioProximity(); // Check next
             };
             
             player.onerror = () => {
@@ -388,7 +391,8 @@
         async function fetchPosts() {
             if(!state.authToken || !state.userLocation) return;
             try {
-                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.range}`, {
+                // Fetch SIEMPRE amplio (5000m) para llenar el mapa, independientemente del slider
+                const res = await fetch(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.fetchRange}`, {
                     headers: { 'Authorization': `Bearer ${state.authToken}` }
                 });
                 if(res.status === 401) return logout();
@@ -396,11 +400,13 @@
                     const data = await res.json();
                     state.loadedPosts = Array.isArray(data) ? data : [];
                     state.lastFetchLocation = {...state.userLocation};
+                    
+                    // Actualizamos las vistas según la pestaña actual
+                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
+                    // Siempre actualizamos marcadores en segundo plano para que el mapa esté listo
+                    updateMapMarkers(state.loadedPosts); 
                 }
             } catch(e) {}
-            
-            if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-            else updateMapMarkers(state.loadedPosts);
         }
 
         // --- RENDERIZADO ---
@@ -445,17 +451,18 @@
 
         function renderPostsSmart(posts) {
             const feed = document.getElementById('feed-container');
+            // AQUÍ aplicamos el filtro del slider para la LISTA
             let filtered = posts.filter(p => {
                 p.distance = getDist(state.userLocation, p);
                 if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
-                return p.distance <= state.range;
+                return p.distance <= state.range; // Solo los que entran en el rango seleccionado
             });
 
             filtered.sort((a,b) => a.distance - b.distance);
             feed.innerHTML = ''; 
             
             if(filtered.length === 0) {
-                feed.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">Nada cerca.</div>`;
+                feed.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">Nada en este rango.</div>`;
                 return;
             }
 
@@ -473,7 +480,6 @@
             const fireCount = p.reactions && p.reactions.fire ? p.reactions.fire.length : 0;
             const userFired = p.reactions && p.reactions.fire && p.reactions.fire.includes(state.currentUser);
 
-            // SIN ETIQUETAS: Solo punto de color
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-3">
                     <div class="flex items-center gap-2">
@@ -489,7 +495,7 @@
                 </div>
                 <div class="mb-4 pl-10 relative">
                     ${p.audio ? `<div class="absolute -left-8 top-1 w-0.5 h-full bg-gray-100"></div>` : ''}
-                    <div class="w-2 h-2 rounded-full mb-2 ${cat.color}"></div> <!-- Punto de color minimalista -->
+                    <div class="w-2 h-2 rounded-full mb-2 ${cat.color}"></div>
                     <p class="text-gray-800 text-[15px] font-normal leading-relaxed whitespace-pre-line">${escapeHtml(p.text)}</p>
                     ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div class="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white mr-3 shrink-0"><i class="fas fa-play text-xs pl-0.5"></i></div><audio controls src="${p.audio}" class="w-full h-8 opacity-80"></audio></div>` : ''}
                 </div>
@@ -509,23 +515,15 @@
             return div;
         }
 
-        // --- ACCIONES (LIKES / COMENTARIOS) ---
+        // --- ACCIONES ---
         async function react(btn, postId, type) {
             const countSpan = btn.querySelector('.count-' + type);
             let c = parseInt(countSpan.innerText);
             const isActive = btn.classList.contains('text-orange-500');
-            
             btn.classList.toggle('text-orange-500', !isActive);
             btn.classList.toggle('text-gray-400', isActive);
             countSpan.innerText = isActive ? Math.max(0, c - 1) : c + 1;
-
-            try {
-                await fetch(`${WORKER_URL}/api/posts/react`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ postId, type })
-                });
-            } catch(e) {}
+            try { await fetch(`${WORKER_URL}/api/posts/react`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ postId, type }) }); } catch(e) {}
         }
 
         async function openComments(postId) {
@@ -533,16 +531,10 @@
             toggleModal('modal-comments', true);
             const list = document.getElementById('comments-list');
             list.innerHTML = '<div class="flex justify-center mt-10"><i class="fas fa-spinner fa-spin text-gray-300"></i></div>';
-            
             try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, {
-                    headers: { 'Authorization': `Bearer ${state.authToken}` }
-                });
-                if(res.ok) renderComments(await res.json());
-                else throw new Error();
-            } catch(e) {
-                list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Sé el primero en comentar.</p>';
-            }
+                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, { headers: { 'Authorization': `Bearer ${state.authToken}` } });
+                if(res.ok) renderComments(await res.json()); else throw new Error();
+            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Sé el primero en comentar.</p>'; }
         }
 
         function renderComments(comments) {
@@ -561,15 +553,8 @@
             const txt = document.getElementById('comment-input').value.trim();
             if(!txt || !state.currentPostId) return;
             try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: txt })
-                });
-                if(res.ok) {
-                    document.getElementById('comment-input').value = '';
-                    openComments(state.currentPostId);
-                }
+                const res = await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: txt }) });
+                if(res.ok) { document.getElementById('comment-input').value = ''; openComments(state.currentPostId); }
             } catch(e) {}
         }
 
@@ -578,22 +563,9 @@
             if(!text && !state.audioBlobBase64) return;
             const btn = document.getElementById('btn-publish');
             btn.disabled = true; btn.innerText = "Enviando...";
-            
             try {
-                await fetch(`${WORKER_URL}/api/posts`, {
-                    method: 'POST',
-                    headers: {'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        text, audio: state.audioBlobBase64,
-                        category: document.getElementById('post-category').value,
-                        lat: state.userLocation.lat, lng: state.userLocation.lng,
-                        pseudonym: state.pseudonym, expiresIn: 24
-                    })
-                });
-                toggleModal('modal-new-post', false);
-                document.getElementById('post-input').value = '';
-                resetAudio();
-                setTimeout(fetchPosts, 1000);
+                await fetch(`${WORKER_URL}/api/posts`, { method: 'POST', headers: {'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify({ text, audio: state.audioBlobBase64, category: document.getElementById('post-category').value, lat: state.userLocation.lat, lng: state.userLocation.lng, pseudonym: state.pseudonym, expiresIn: 24 }) });
+                toggleModal('modal-new-post', false); document.getElementById('post-input').value = ''; resetAudio(); setTimeout(fetchPosts, 1000);
             } catch(e) { alert("Error al publicar"); } 
             finally { btn.disabled = false; btn.innerText = "Publicar Ahora"; }
         }
@@ -601,51 +573,34 @@
         // --- MAPA ---
         function initMap() {
             if (state.mapInstance) return;
-            
             const lat = state.userLocation ? state.userLocation.lat : 40.4168; 
             const lng = state.userLocation ? state.userLocation.lng : -3.7038;
-
             state.mapInstance = L.map('map-view', { zoomControl: false, attributionControl: false }).setView([lat, lng], 18);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.mapInstance);
             
-            // Marker Cluster
             state.markerCluster = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(40, 40) }) });
             state.mapInstance.addLayer(state.markerCluster);
-            
-            // User Marker
             updateUserMarker();
             updateMapMarkers(state.loadedPosts);
         }
 
         function updateUserMarker() {
             if(!state.mapInstance || !state.userLocation) return;
-
             const pulseClass = state.currentTab === 'radio' ? 'radio-pulse' : 'user-pulse';
-            const icon = L.divIcon({
-                className: 'bg-transparent border-none',
-                html: `<div class="${pulseClass}"></div>`,
-                iconSize: [20, 20],
-                iconAnchor: [10, 10]
-            });
-
-            if(state.userMarker) {
-                state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]);
-                state.userMarker.setIcon(icon);
-            } else {
-                state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.mapInstance);
-            }
-            
-            if(state.currentTab === 'radio') {
-                state.mapInstance.setView([state.userLocation.lat, state.userLocation.lng], 19, { animate: true });
-            }
+            const icon = L.divIcon({ className: 'bg-transparent border-none', html: `<div class="${pulseClass}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
+            if(state.userMarker) { state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]); state.userMarker.setIcon(icon); } 
+            else { state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.mapInstance); }
+            if(state.currentTab === 'radio') state.mapInstance.setView([state.userLocation.lat, state.userLocation.lng], 19, { animate: true });
         }
 
         function updateMapMarkers(posts) {
             if (!state.markerCluster) return;
             state.markerCluster.clearLayers();
+            // IMPORTANTE: Aquí NO filtramos por distancia, mostramos TODO lo que haya traído el fetch
             const filtered = posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
+            
             filtered.forEach(p => {
-                // SIN POPUPS: Solo marcadores negros limpios
+                // Sin popup de texto por defecto, simple
                 const marker = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
                 state.markerCluster.addLayer(marker);
             });
@@ -658,19 +613,8 @@
                 state.mediaRecorder = new MediaRecorder(stream);
                 state.audioChunks = [];
                 state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
-                state.mediaRecorder.onstop = () => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(new Blob(state.audioChunks, { type: 'audio/webm' }));
-                    reader.onloadend = () => {
-                        state.audioBlobBase64 = reader.result;
-                        document.getElementById('audio-preview').classList.remove('hidden');
-                        document.getElementById('audio-preview').innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8 mt-2"></audio>`;
-                        document.getElementById('btn-delete-audio').classList.remove('hidden');
-                    };
-                };
-                state.mediaRecorder.start(); state.isRecording = true;
-                document.getElementById('btn-record').classList.add('bg-red-500', 'text-white');
-                document.getElementById('recording-indicator').classList.remove('hidden');
+                state.mediaRecorder.onstop = () => { const r = new FileReader(); r.readAsDataURL(new Blob(state.audioChunks, { type: 'audio/webm' })); r.onloadend = () => { state.audioBlobBase64 = r.result; document.getElementById('audio-preview').classList.remove('hidden'); document.getElementById('audio-preview').innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8 mt-2"></audio>`; document.getElementById('btn-delete-audio').classList.remove('hidden'); }; };
+                state.mediaRecorder.start(); state.isRecording = true; document.getElementById('btn-record').classList.add('bg-red-500', 'text-white'); document.getElementById('recording-indicator').classList.remove('hidden');
             } catch(e) { alert("Error micro"); }
         }
         function stopRecording() { if(state.isRecording) { state.mediaRecorder.stop(); state.isRecording = false; document.getElementById('btn-record').classList.remove('bg-red-500', 'text-white'); document.getElementById('recording-indicator').classList.add('hidden'); } }
@@ -686,11 +630,7 @@
             });
         }
         function toggleModal(id, show) { const el = document.getElementById(id); if(show) { el.classList.remove('hidden'); el.querySelector('div').classList.add('animate-slide-up'); } else el.classList.add('hidden'); }
-        function getDist(p1, p2) { 
-            if(!p1 || !p2) return 9999;
-            const R=6371e3, p=Math.PI/180, a=0.5-Math.cos((p2.lat-p1.lat)*p)/2+Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2; 
-            return 2*R*Math.asin(Math.sqrt(a)); 
-        }
+        function getDist(p1, p2) { const R=6371e3, p=Math.PI/180, a=0.5-Math.cos((p2.lat-p1.lat)*p)/2+Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2; return 2*R*Math.asin(Math.sqrt(a)); }
         function formatDistance(m) { return m<10?'Aquí':(m>=1000?(m/1000).toFixed(1)+'km':Math.round(m)+'m'); }
         function escapeHtml(t) { return t?t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])):''; }
         function getTimeAgo(iso) { const s=Math.floor((new Date()-new Date(iso))/1000); if(s<60)return'ahora'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
@@ -705,11 +645,10 @@
         <div onclick="openProfile()" class="w-9 h-9 bg-black text-white rounded-full flex items-center justify-center text-sm font-bold shadow-lg"><i class="fas fa-user"></i></div>
     </header>
 
-    <!-- FILTERS & RANGE (Actualizado 10-200m) -->
+    <!-- FILTERS -->
     <div class="bg-white/90 backdrop-blur z-20 border-b border-gray-100 pb-2">
         <div class="px-6 py-3 flex items-center gap-4">
             <i class="fas fa-location-crosshairs text-gray-300 text-xs"></i>
-            <!-- Min 10, Max 200, Step 10, Default 50 -->
             <input type="range" min="10" max="200" step="10" value="50" id="rangeSlider" class="flex-1 h-1 bg-gray-200 rounded-full cursor-pointer accent-black">
             <span id="rangeValue" class="text-[10px] font-bold text-black w-12 text-right">50m</span>
         </div>
@@ -725,7 +664,6 @@
 
     <!-- MAIN CONTENT -->
     <main class="flex-1 relative overflow-hidden bg-gray-50">
-        <!-- Feed -->
         <div id="feed-container" class="absolute inset-0 overflow-y-auto pt-4 z-10 hide-scrollbar pb-32">
             <div id="gps-loading" class="flex flex-col items-center justify-center h-full text-gray-300 gap-3">
                 <i class="fas fa-satellite-dish fa-spin text-2xl"></i>
@@ -733,17 +671,12 @@
             </div>
         </div>
         
-        <!-- Map View Container (Used for both Map & Radio now) -->
         <div id="map-view-container" class="hidden absolute inset-0 z-0 bg-gray-100">
             <div id="map-view" class="w-full h-full opacity-0 animate-fade-in" style="animation-fill-mode: forwards;"></div>
-            
-            <!-- Radio Info Overlay (Only visible in Radio Mode) -->
             <div id="radio-status-badge" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-4 py-2 rounded-full flex items-center gap-2 z-[400] shadow-lg">
                 <div class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                 <span class="text-xs font-bold tracking-widest">MODO RADIO ACTIVO</span>
             </div>
-
-            <!-- Playing Info Overlay -->
             <div id="radio-playing-info" class="absolute bottom-24 left-4 right-4 hidden z-[500]"></div>
         </div>
     </main>
@@ -751,27 +684,14 @@
     <!-- BOTTOM NAV -->
     <div class="fixed bottom-0 left-0 right-0 h-[80px] pointer-events-none z-40 flex justify-center items-end pb-6">
         <div class="glass-nav pointer-events-auto rounded-full shadow-float px-6 py-3 flex items-center gap-8 mb-2 mx-4">
-            <button id="tab-feed" class="btn-press flex flex-col items-center justify-center text-black w-12">
-                <i class="fas fa-stream text-lg mb-1"></i>
-                <span class="text-[9px] font-bold">LISTA</span>
-            </button>
-            <button id="tab-radio" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12">
-                <i class="fas fa-broadcast-tower text-lg mb-1"></i>
-                <span class="text-[9px] font-bold">RADIO</span>
-            </button>
-            <button id="tab-map" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12">
-                <i class="fas fa-map text-lg mb-1"></i>
-                <span class="text-[9px] font-bold">MAPA</span>
-            </button>
+            <button id="tab-feed" class="btn-press flex flex-col items-center justify-center text-black w-12"><i class="fas fa-stream text-lg mb-1"></i><span class="text-[9px] font-bold">LISTA</span></button>
+            <button id="tab-radio" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-broadcast-tower text-lg mb-1"></i><span class="text-[9px] font-bold">RADIO</span></button>
+            <button id="tab-map" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-map text-lg mb-1"></i><span class="text-[9px] font-bold">MAPA</span></button>
         </div>
-        
-        <!-- FAB Add -->
-        <button id="btn-add-center" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50">
-            <i class="fas fa-plus text-xl"></i>
-        </button>
+        <button id="btn-add-center" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50"><i class="fas fa-plus text-xl"></i></button>
     </div>
 
-    <!-- MODALS (Hidden by default) -->
+    <!-- MODALS -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center">
         <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up">
             <div class="flex justify-between items-center mb-6"><span class="text-xs font-black text-gray-300 uppercase">Nuevo Whispr</span><button id="btn-close-post"><i class="fas fa-times text-gray-500"></i></button></div>
