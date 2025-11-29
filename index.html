@@ -5,17 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff">
     
-    <!-- CSP Segura para tu Worker -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' *; style-src 'self' 'unsafe-inline' *; connect-src 'self' https://whispr.logise1123.workers.dev *;">
+    <!-- CSP: Permitimos conexiones a Google/Firebase -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' * data: blob: 'unsafe-inline' 'unsafe-eval';">
     
     <title>Whispr</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Mapa Ligeros -->
+    <!-- Mapas -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Clusters (sin estilos pesados extra) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
 
@@ -28,19 +27,15 @@
                 extend: {
                     fontFamily: { sans: ['Inter', 'sans-serif'] },
                     colors: { brand: { black: '#050505', gray: '#FAFAFA' } },
-                    boxShadow: {
-                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
-                        'float': '0 10px 30px -5px rgba(0, 0, 0, 0.1)',
-                    },
                     animation: {
                         'fade-in': 'fadeIn 0.4s ease-out forwards',
                         'slide-up': 'slideUp 0.3s ease-out forwards',
-                        'pulse-slow': 'pulseSlow 3s infinite'
+                        'pulse-radar': 'pulseRadar 2s infinite'
                     },
                     keyframes: {
                         fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
                         slideUp: { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } },
-                        pulseSlow: { '0%': { transform: 'scale(0.8)', opacity: '0.5' }, '50%': { transform: 'scale(1.1)', opacity: '0.2' }, '100%': { transform: 'scale(0.8)', opacity: '0.5' } }
+                        pulseRadar: { '0%': { transform: 'scale(0.8)', opacity: '0.7' }, '100%': { transform: 'scale(2.5)', opacity: '0' } }
                     }
                 }
             }
@@ -48,622 +43,397 @@
     </script>
 
     <style>
-        body { 
-            padding-bottom: env(safe-area-inset-bottom); 
-            -webkit-tap-highlight-color: transparent;
-            background-color: #FAFAFA;
-        }
-        .glass-nav {
-            background: rgba(255, 255, 255, 0.90);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.5);
-        }
-        .glass-header {
-            background: rgba(255, 255, 255, 0.90);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-bottom: 1px solid rgba(0,0,0,0.03);
-        }
-        .btn-press { transition: transform 0.1s; }
+        body { padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; background-color: #FAFAFA; }
+        .glass-nav { background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.5); }
+        .glass-header { background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(0,0,0,0.03); }
         .btn-press:active { transform: scale(0.95); }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
         #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
         
-        /* Clusters minimalistas */
-        .custom-cluster-icon div { 
-            width: 32px; height: 32px; line-height: 32px; text-align: center; 
-            background: #111; color: white; border-radius: 50%; 
-            font-weight: 700; font-size: 11px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-            border: 2px solid white;
-        }
-        
-        audio::-webkit-media-controls-panel { background-color: #f3f4f6; }
-        audio::-webkit-media-controls-play-button { background-color: #e5e7eb; border-radius: 50%; }
-
-        /* Marcadores Pulsantes */
-        .user-pulse {
-            width: 16px; height: 16px;
-            background: #2563EB;
-            border: 2px solid white;
-            border-radius: 50%;
-            box-shadow: 0 0 0 rgba(37, 99, 235, 0.4);
-            animation: pulse-ring 2s infinite;
-        }
-        .radio-pulse {
-            width: 16px; height: 16px;
-            background: #10B981;
-            border: 2px solid white;
-            border-radius: 50%;
-            box-shadow: 0 0 0 rgba(16, 185, 129, 0.4);
-            animation: pulse-ring-green 2s infinite;
-        }
+        /* Marcadores Minimalistas */
+        .custom-cluster-icon div { width: 32px; height: 32px; line-height: 32px; text-align: center; background: #111; color: white; border-radius: 50%; font-weight: 700; font-size: 11px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .user-pulse { width: 16px; height: 16px; background: #2563EB; border: 2px solid white; border-radius: 50%; animation: pulse-ring 2s infinite; }
+        .radio-pulse { width: 16px; height: 16px; background: #10B981; border: 2px solid white; border-radius: 50%; animation: pulse-ring-green 2s infinite; }
         @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
         @keyframes pulse-ring-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
     </style>
 
-    <script>
-        const WORKER_URL = "https://whispr.logise1123.workers.dev"; 
-        
-        // Categorías: Solo colores, sin texto
-        const CATEGORIES = {
-            gossip: { color: 'bg-zinc-900' },
-            humor:  { color: 'bg-yellow-400' },
-            love:   { color: 'bg-rose-500' },
-            idea:   { color: 'bg-blue-500' },
-            promo:  { color: 'bg-emerald-500' }
+    <!-- FIREBASE SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- TU CONFIGURACIÓN ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAxp3akXJZXC6qrw6LhqNRFRS-Z1vUHb8A",
+            authDomain: "whispr-89c76.firebaseapp.com",
+            projectId: "whispr-89c76",
+            storageBucket: "whispr-89c76.firebasestorage.app",
+            messagingSenderId: "215012367928",
+            appId: "1:215012367928:web:6a49d53d2ccaf73097d0cd",
+            measurementId: "G-8NCRCLJKBE"
         };
 
-        let state = {
+        // Identificador de app para la ruta de Firestore (Standard para este entorno)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'whispr-dev';
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- ESTADO GLOBAL ---
+        window.state = {
+            user: null,
             userLocation: null,
-            lastFetchLocation: null,
-            range: 50, // Rango visual del slider (10m - 200m)
-            fetchRange: 5000, // Rango de datos del mapa (5km siempre)
-            authToken: null,
-            currentUser: null,
-            pseudonym: null,
-            loadedPosts: [],
+            range: 50, // Filtro Lista 10m-200m
             activeFilter: 'all',
-            currentTab: 'feed', 
-            mapInstance: null,
-            markerCluster: null,
+            currentTab: 'feed',
+            posts: [],
+            map: null,
+            markers: null,
             userMarker: null,
-            mediaRecorder: null,
-            audioChunks: [],
-            audioBlobBase64: null,
-            isRecording: false,
+            isRadioPlaying: false,
             playedAudios: new Set(),
-            isRadioPlaying: false
+            audioBlobBase64: null,
+            mediaRecorder: null,
+            audioChunks: []
         };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            checkSession();
-            initListeners();
-        });
-
-        function checkSession() {
-            try {
-                state.authToken = localStorage.getItem('whispr_token');
-                state.currentUser = localStorage.getItem('whispr_username');
-                state.pseudonym = localStorage.getItem('whispr_pseudonym') || state.currentUser;
-            } catch(e){}
-
-            if (state.authToken && state.currentUser) {
-                initApp();
-            } else {
-                toggleModal('modal-auth', true);
-            }
-        }
-
-        function initApp() {
-            updateProfileUI();
-            toggleModal('modal-auth', false);
-            startLiveTracking();
-        }
-
-        function updateProfileUI() {
-            const input = document.getElementById('prof-pseudo');
-            if(input && state.pseudonym) input.value = state.pseudonym;
-        }
-
-        function initListeners() {
-            on('btn-logout', 'click', logout);
-            on('btn-profile', 'click', openProfile);
+        // --- AUTH: USERNAME -> FAKE EMAIL ---
+        window.handleAuth = async () => {
+            const userIn = document.getElementById('auth-username').value.trim();
+            const passIn = document.getElementById('auth-password').value;
             
-            // Tabs
-            on('tab-feed', 'click', () => switchTab('feed'));
-            on('tab-radio', 'click', () => switchTab('radio'));
-            on('tab-map', 'click', () => switchTab('map'));
-
-            // Slider: 10m a 200m
-            const slider = document.getElementById('rangeSlider');
-            if(slider) {
-                slider.addEventListener('input', (e) => {
-                    state.range = parseInt(e.target.value);
-                    document.getElementById('rangeValue').innerText = formatDistance(state.range);
-                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                });
-                // Recargar datos al soltar para asegurar frescura, pero manteniendo rango amplio de fetch
-                slider.addEventListener('change', () => fetchPosts());
-            }
-
-            // Acciones
-            on('btn-add-center', 'click', () => toggleModal('modal-new-post', true));
-            on('btn-close-post', 'click', () => toggleModal('modal-new-post', false));
-            on('btn-publish', 'click', publishPost);
-            on('auth-submit', 'click', handleAuthSubmit);
-            
-            // Audio Recorder
-            const btnRecord = document.getElementById('btn-record');
-            if(btnRecord){
-                const startRec = (e) => { e.preventDefault(); startRecording(); };
-                const stopRec = (e) => { e.preventDefault(); stopRecording(); };
-                btnRecord.addEventListener('mousedown', startRec);
-                btnRecord.addEventListener('mouseup', stopRec);
-                btnRecord.addEventListener('touchstart', startRec);
-                btnRecord.addEventListener('touchend', stopRec);
-            }
-            on('btn-delete-audio', 'click', resetAudio);
-
-            // Filtros
-            document.querySelectorAll('.filter-pill').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('.filter-pill').forEach(b => {
-                        b.classList.remove('bg-black', 'text-white');
-                        b.classList.add('bg-white', 'text-gray-500', 'border', 'border-gray-200');
-                    });
-                    e.currentTarget.classList.remove('bg-white', 'text-gray-500', 'border', 'border-gray-200');
-                    e.currentTarget.classList.add('bg-black', 'text-white');
-                    
-                    state.activeFilter = e.currentTarget.dataset.filter;
-                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    else updateMapMarkers(state.loadedPosts);
-                });
-            });
-
-            // Categoría
-            document.querySelectorAll('.cat-select').forEach(opt => {
-                opt.addEventListener('click', (e) => {
-                    document.querySelectorAll('.cat-select').forEach(c => c.classList.remove('ring-2', 'ring-black', 'scale-105'));
-                    e.currentTarget.classList.add('ring-2', 'ring-black', 'scale-105');
-                    document.getElementById('post-category').value = e.currentTarget.dataset.cat;
-                });
-            });
-            
-            // Comentarios
-            on('btn-close-comments', 'click', () => toggleModal('modal-comments', false));
-            on('btn-send-comment', 'click', publishComment);
-        }
-
-        function on(id, evt, handler) {
-            const el = document.getElementById(id);
-            if(el) el.addEventListener(evt, handler);
-        }
-
-        // --- AUTH & SERVER COMMUNICATION ---
-        async function handleAuthSubmit() {
-            const userIn = document.getElementById('auth-username').value.trim().toLowerCase();
-            const passIn = document.getElementById('auth-password').value.trim();
             if(!userIn || !passIn) return alert("Faltan datos");
-
+            
+            // Creamos un email falso para que Firebase Auth funcione con Username
+            const fakeEmail = `${userIn.toLowerCase().replace(/\s/g,'')}@whispr.app`;
             const btn = document.getElementById('auth-submit');
-            const originalText = btn.innerText;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Conectando...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
             btn.disabled = true;
 
             try {
-                // Paso 1: Intentar LOGIN
-                let res = await fetchWithTimeout(`${WORKER_URL}/api/auth/login`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: userIn, password: passIn})
-                }, 8000); // 8s timeout para cold start
-                
-                // Paso 2: Si 401/404, preguntar Registro
-                if(!res.ok) {
-                    const confirmRegister = confirm("Usuario no encontrado o contraseña incorrecta.\n¿Crear cuenta nueva?");
-                    if(confirmRegister) {
-                        btn.innerHTML = '<i class="fas fa-user-plus"></i> Registrando...';
-                        res = await fetchWithTimeout(`${WORKER_URL}/api/auth/register`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({username: userIn, password: passIn})
-                        }, 8000);
-                    } else {
-                        throw new Error("Cancelado por usuario");
-                    }
-                }
-
-                const data = await res.json();
-                if(!res.ok) throw new Error(data.error || "Error de conexión");
-                
-                state.authToken = data.token;
-                state.currentUser = data.username;
-                state.pseudonym = data.username;
-                localStorage.setItem('whispr_token', data.token);
-                localStorage.setItem('whispr_username', data.username);
-                initApp();
-
-            } catch(e) { 
-                alert(e.message === "Failed to fetch" ? "Error de red: El servidor tarda en responder. Intenta de nuevo." : e.message); 
-            } finally { 
-                btn.innerHTML = originalText; 
-                btn.disabled = false; 
-            }
-        }
-
-        async function fetchWithTimeout(resource, options = {}, timeout = 8000) {
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), timeout);
-            const response = await fetch(resource, { ...options, signal: controller.signal });
-            clearTimeout(id);
-            return response;
-        }
-
-        function logout() { localStorage.clear(); location.reload(); }
-
-        // --- GEO & LOGIC ---
-        function startLiveTracking() {
-            const loading = document.getElementById('gps-loading');
-            loading.classList.remove('hidden');
-            
-            if(!navigator.geolocation) return alert("GPS requerido");
-
-            navigator.geolocation.watchPosition(
-                (pos) => {
-                    const firstTime = !state.userLocation;
-                    const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                    
-                    // Actualización inteligente: solo si nos movemos > 2 metros para evitar jitter
-                    if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
-                        state.userLocation = newLoc;
-                        loading.classList.add('hidden');
-                        
-                        updateDistancesInUI();
-                        
-                        // Actualizar marcador usuario
-                        if((state.currentTab === 'map' || state.currentTab === 'radio') && state.mapInstance) {
-                            updateUserMarker();
-                        }
-
-                        // Lógica RADIO
-                        if(state.currentTab === 'radio') checkRadioProximity();
-
-                        // Fetch datos: Si es la primera vez o nos movimos > 100m
-                        if (firstTime || !state.lastFetchLocation || getDist(state.userLocation, state.lastFetchLocation) > 100) {
-                            fetchPosts();
+                // 1. Intentar Login
+                await signInWithEmailAndPassword(auth, fakeEmail, passIn);
+            } catch (e) {
+                // 2. Si falla (ej: user-not-found), intentar Registro
+                if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found') {
+                    const doRegister = confirm("Usuario no encontrado. ¿Crear cuenta nueva?");
+                    if (doRegister) {
+                        try {
+                            const cred = await createUserWithEmailAndPassword(auth, fakeEmail, passIn);
+                            await updateProfile(cred.user, { displayName: userIn });
+                        } catch (regErr) {
+                            alert("Error registro: " + regErr.message);
                         }
                     }
-                },
-                (err) => console.warn(err),
-                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-            );
-        }
-
-        // --- RADIO (3m & Sequential) ---
-        function checkRadioProximity() {
-            if(state.isRadioPlaying || !state.loadedPosts || !state.userLocation) return;
-            
-            // Radio: 3 metros
-            const candidates = state.loadedPosts.filter(p => 
-                p.audio && 
-                getDist(state.userLocation, p) <= 3 && 
-                !state.playedAudios.has(p.id)
-            );
-            
-            if(candidates.length > 0) {
-                // Ordenar por cercanía y reproducir el más cercano
-                candidates.sort((a,b) => getDist(state.userLocation, a) - getDist(state.userLocation, b));
-                playRadioTrack(candidates[0]);
-            } else {
-                hideRadioPlaying();
-            }
-        }
-
-        function playRadioTrack(post) {
-            state.isRadioPlaying = true; 
-            state.playedAudios.add(post.id); 
-
-            const player = new Audio(post.audio);
-            
-            player.onended = () => {
-                state.isRadioPlaying = false;
-                hideRadioPlaying();
-                checkRadioProximity(); // Check next in queue
-            };
-            
-            player.onerror = () => {
-                state.isRadioPlaying = false; // Release lock on error
-            };
-
-            player.play().then(() => {
-                showRadioPlaying(post);
-                if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
-            }).catch(e => {
-                state.isRadioPlaying = false; 
-            });
-        }
-
-        function showRadioPlaying(post) {
-            const el = document.getElementById('radio-playing-info');
-            el.innerHTML = `
-                <div class="animate-slide-up bg-black/80 backdrop-blur rounded-full px-5 py-2 shadow-xl border border-emerald-500/50 flex items-center gap-3">
-                    <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    <div class="flex flex-col">
-                        <span class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest leading-none">ON AIR</span>
-                        <span class="text-xs font-bold text-white leading-none mt-0.5 max-w-[150px] truncate">${escapeHtml(post.pseudonym)}</span>
-                    </div>
-                </div>
-            `;
-            el.classList.remove('hidden');
-        }
-
-        function hideRadioPlaying() {
-            const el = document.getElementById('radio-playing-info');
-            if(el) el.classList.add('hidden');
-        }
-
-        async function fetchPosts() {
-            if(!state.authToken || !state.userLocation) return;
-            try {
-                // Fetch SIEMPRE amplio (fetchRange=5000m) para el mapa, aunque el slider sea pequeño
-                const res = await fetchWithTimeout(`${WORKER_URL}/api/posts?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}&range=${state.fetchRange}`, {}, 8000);
-                if(res.status === 401) return logout();
-                if(res.ok) {
-                    const data = await res.json();
-                    state.loadedPosts = Array.isArray(data) ? data : [];
-                    state.lastFetchLocation = {...state.userLocation};
-                    
-                    if(state.currentTab === 'feed') renderPostsSmart(state.loadedPosts);
-                    updateMapMarkers(state.loadedPosts); // Actualizar mapa siempre en background
-                }
-            } catch(e) {}
-        }
-
-        // --- RENDERIZADO ---
-        function switchTab(tab) {
-            state.currentTab = tab;
-            
-            ['feed', 'radio', 'map'].forEach(t => {
-                const btn = document.getElementById(`tab-${t}`);
-                if(btn) {
-                    btn.classList.toggle('text-black', t === tab);
-                    btn.classList.toggle('text-gray-400', t !== tab);
-                }
-            });
-
-            const feedContainer = document.getElementById('feed-container');
-            const mapContainer = document.getElementById('map-view-container');
-            const radioInfo = document.getElementById('radio-status-badge');
-
-            if(tab === 'feed') {
-                feedContainer.classList.remove('hidden');
-                mapContainer.classList.add('hidden');
-                radioInfo.classList.add('hidden');
-                renderPostsSmart(state.loadedPosts);
-            } else {
-                // Mapa y Radio comparten vista de mapa
-                feedContainer.classList.add('hidden');
-                mapContainer.classList.remove('hidden');
-                
-                if(tab === 'radio') {
-                    radioInfo.classList.remove('hidden');
-                    checkRadioProximity();
                 } else {
-                    radioInfo.classList.add('hidden');
+                    alert("Error login: " + e.message);
                 }
-
-                setTimeout(() => { 
-                    initMap(); 
-                    if(state.mapInstance) state.mapInstance.invalidateSize(); 
-                    updateUserMarker(); 
-                }, 100);
+            } finally {
+                btn.innerText = "Entrar / Registrar";
+                btn.disabled = false;
             }
+        };
+
+        window.doLogout = () => signOut(auth);
+
+        // Listener Sesión
+        onAuthStateChanged(auth, (user) => {
+            state.user = user;
+            const modal = document.getElementById('modal-auth');
+            if (user) {
+                modal.classList.add('hidden');
+                document.getElementById('prof-pseudo').value = user.displayName || user.email.split('@')[0];
+                initRealtimeListener(); // Conectar a DB
+            } else {
+                modal.classList.remove('hidden');
+            }
+        });
+
+        // --- FIRESTORE REALTIME (SIN LAG) ---
+        let unsubscribe = null;
+
+        function initRealtimeListener() {
+            if(unsubscribe) unsubscribe();
+
+            // Ruta estricta requerida por el sistema
+            const postsRef = collection(db, 'artifacts', appId, 'public', 'data', 'posts');
+            
+            // Traemos los últimos 150 posts. El filtrado de distancia se hace en cliente para rapidez.
+            const q = query(postsRef, orderBy('timestamp', 'desc'), limit(150));
+
+            unsubscribe = onSnapshot(q, (snapshot) => {
+                const now = new Date();
+                
+                state.posts = snapshot.docs.map(doc => {
+                    const d = doc.data();
+                    // Convertir Timestamp Firestore a Date JS
+                    const ts = d.timestamp ? d.timestamp.toDate() : new Date();
+                    const exp = d.expiresAt ? d.expiresAt.toDate() : null;
+                    
+                    return { id: doc.id, ...d, timestamp: ts, expiresAt: exp };
+                })
+                .filter(p => !p.expiresAt || p.expiresAt > now); // Filtrar expirados
+
+                refreshUI(); // Actualizar interfaz al recibir datos nuevos
+            });
         }
 
-        function renderPostsSmart(posts) {
-            const feed = document.getElementById('feed-container');
-            // Filtro por SLIDER para la lista
-            let filtered = posts.filter(p => {
+        // --- UI REFRESH ---
+        window.refreshUI = () => {
+            if(!state.userLocation) return; 
+
+            // Calcular distancias
+            state.posts.forEach(p => {
                 p.distance = getDist(state.userLocation, p);
-                if(state.activeFilter !== 'all' && p.category !== state.activeFilter) return false;
-                return p.distance <= state.range;
             });
 
-            filtered.sort((a,b) => a.distance - b.distance);
-            feed.innerHTML = ''; 
+            if(state.currentTab === 'feed') renderFeed();
+            
+            // Actualizar mapa y marcadores sin parpadeos
+            if(state.currentTab === 'map' || state.currentTab === 'radio') {
+                updateMapMarkers();
+            }
+            
+            if(state.currentTab === 'radio') checkRadio();
+        };
+
+        // --- FEED LIST ---
+        function renderFeed() {
+            const container = document.getElementById('feed-container');
+            const filtered = state.posts
+                .filter(p => p.distance <= state.range) // Filtro Slider
+                .filter(p => state.activeFilter === 'all' || p.category === state.activeFilter)
+                .sort((a,b) => a.distance - b.distance);
+
+            container.innerHTML = '';
             
             if(filtered.length === 0) {
-                feed.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Nada en ${state.range}m.</div>`;
+                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Nada en ${state.range}m.</div>`;
                 return;
             }
 
-            filtered.forEach((p, index) => feed.appendChild(createCard(p, index)));
-            feed.appendChild(document.createElement('div')).className = 'h-32';
+            filtered.forEach(p => container.appendChild(createCard(p)));
+            container.appendChild(document.createElement('div')).className = 'h-32';
         }
 
-        function createCard(p, index) {
+        function createCard(p) {
             const div = document.createElement('div');
-            div.className = "post-card bg-white p-5 mb-4 rounded-2xl shadow-soft border border-gray-50 opacity-0 animate-fade-in mx-4";
-            div.style.animationDelay = `${index * 50}ms`;
-            div.dataset.id = p.id; div.dataset.lat = p.lat; div.dataset.lng = p.lng;
+            div.className = "post-card bg-white p-5 mb-4 rounded-2xl shadow-soft border border-gray-50 mx-4 animate-fade-in";
+            
+            const cats = { gossip: 'bg-zinc-900', humor: 'bg-yellow-400', love: 'bg-rose-500', idea: 'bg-blue-500', promo: 'bg-emerald-500' };
+            const color = cats[p.category] || 'bg-gray-500';
+            const isLiked = p.likes && p.likes.includes(state.user.uid);
 
-            const cat = CATEGORIES[p.category] || CATEGORIES.gossip;
-            const fireCount = p.reactions && p.reactions.fire ? p.reactions.fire.length : 0;
-            const userFired = p.reactions && p.reactions.fire && p.reactions.fire.includes(state.currentUser);
-
-            // DISEÑO MINIMALISTA: Sin etiquetas de categoría, solo punto de color
             div.innerHTML = `
                 <div class="flex justify-between items-start mb-3">
                     <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">
-                            ${p.pseudonym ? p.pseudonym.substring(0,2).toUpperCase() : '?'}
-                        </div>
-                        <div class="flex flex-col">
-                            <span class="font-bold text-sm text-gray-900 leading-none">${escapeHtml(p.pseudonym)}</span>
-                            <span class="text-[10px] text-gray-400 font-medium mt-1">${getTimeAgo(p.timestamp)}</span>
-                        </div>
+                        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">${p.authorName ? p.authorName.substring(0,2).toUpperCase() : '?'}</div>
+                        <div class="flex flex-col"><span class="font-bold text-sm">${p.authorName || 'Anon'}</span><span class="text-[10px] text-gray-400">${getTimeAgo(p.timestamp)}</span></div>
                     </div>
-                    <span class="dist-label text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">${formatDistance(p.distance)}</span>
+                    <span class="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-full">${formatDist(p.distance)}</span>
                 </div>
-                <div class="mb-4 pl-10 relative">
-                    ${p.audio ? `<div class="absolute -left-8 top-1 w-0.5 h-full bg-gray-100"></div>` : ''}
-                    <div class="w-1.5 h-1.5 rounded-full mb-2 ${cat.color}"></div>
-                    <p class="text-gray-800 text-[15px] font-normal leading-relaxed whitespace-pre-line">${escapeHtml(p.text)}</p>
-                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div class="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white mr-3 shrink-0"><i class="fas fa-play text-xs pl-0.5"></i></div><audio controls src="${p.audio}" class="w-full h-8 opacity-80"></audio></div>` : ''}
+                <div class="mb-4 pl-10">
+                    ${p.audio ? `<div class="w-2 h-2 rounded-full mb-2 ${color}"></div>` : `<div class="w-1.5 h-1.5 rounded-full mb-2 ${color}"></div>`}
+                    <p class="text-gray-800 text-[15px] whitespace-pre-line">${escapeHtml(p.text)}</p>
+                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="new Audio('${p.audio}').play()" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
                 </div>
-                <div class="flex items-center justify-between pl-10 pt-2 border-t border-gray-50">
-                    <div class="flex gap-5">
-                        <button onclick="react(this, '${p.id}', 'fire')" class="btn-press flex items-center gap-1.5 ${userFired ? 'text-orange-500' : 'text-gray-400'} hover:text-black transition-colors">
-                            <i class="${userFired ? 'fas' : 'fas'} fa-fire text-lg"></i>
-                            <span class="text-xs font-bold count-fire">${fireCount}</span>
-                        </button>
-                        <button onclick="openComments('${p.id}')" class="btn-press flex items-center gap-1.5 text-gray-400 hover:text-black transition-colors">
-                            <i class="far fa-comment text-lg"></i>
-                            <span class="text-xs font-bold">Comentar</span>
-                        </button>
-                    </div>
+                <div class="flex items-center pl-10 gap-6">
+                    <button onclick="toggleLike('${p.id}')" class="flex items-center gap-1.5 ${isLiked ? 'text-orange-500' : 'text-gray-400'}"><i class="${isLiked ? 'fas' : 'fas'} fa-fire text-lg"></i><span class="text-xs font-bold">${p.likes ? p.likes.length : 0}</span></button>
                 </div>
             `;
             return div;
         }
 
-        // --- ACCIONES ---
-        async function react(btn, postId, type) {
-            const countSpan = btn.querySelector('.count-' + type);
-            let c = parseInt(countSpan.innerText);
-            const isActive = btn.classList.contains('text-orange-500');
-            btn.classList.toggle('text-orange-500', !isActive);
-            btn.classList.toggle('text-gray-400', isActive);
-            countSpan.innerText = isActive ? Math.max(0, c - 1) : c + 1;
-            try { await fetch(`${WORKER_URL}/api/posts/react`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ postId, type }) }); } catch(e) {}
-        }
-
-        async function openComments(postId) {
-            state.currentPostId = postId;
-            toggleModal('modal-comments', true);
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '<div class="flex justify-center mt-10"><i class="fas fa-spinner fa-spin text-gray-300"></i></div>';
-            try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${postId}/comments`, { headers: { 'Authorization': `Bearer ${state.authToken}` } });
-                if(res.ok) renderComments(await res.json()); else throw new Error();
-            } catch(e) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Sé el primero en comentar.</p>'; }
-        }
-
-        function renderComments(comments) {
-            const list = document.getElementById('comments-list');
-            list.innerHTML = '';
-            if(!comments || !comments.length) { list.innerHTML = '<p class="text-center text-xs text-gray-400 mt-10">Sin comentarios.</p>'; return; }
-            comments.forEach(c => {
-                const d = document.createElement('div');
-                d.className = "mb-4 border-b border-gray-50 pb-2";
-                d.innerHTML = `<div class="flex justify-between text-[10px] text-gray-400 mb-1"><span class="font-bold text-gray-900">${escapeHtml(c.author)}</span><span>${getTimeAgo(c.timestamp)}</span></div><p class="text-sm text-gray-800">${escapeHtml(c.text)}</p>`;
-                list.appendChild(d);
-            });
-        }
-
-        async function publishComment() {
-            const txt = document.getElementById('comment-input').value.trim();
-            if(!txt || !state.currentPostId) return;
-            try {
-                const res = await fetch(`${WORKER_URL}/api/posts/${state.currentPostId}/comments`, { method: 'POST', headers: { 'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: txt }) });
-                if(res.ok) { document.getElementById('comment-input').value = ''; openComments(state.currentPostId); }
-            } catch(e) {}
-        }
-
-        async function publishPost() {
-            const text = document.getElementById('post-input').value.trim();
-            if(!text && !state.audioBlobBase64) return;
-            const btn = document.getElementById('btn-publish');
-            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Publicando...';
-            try {
-                await fetchWithTimeout(`${WORKER_URL}/api/posts`, { method: 'POST', headers: {'Authorization': `Bearer ${state.authToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify({ text, audio: state.audioBlobBase64, category: document.getElementById('post-category').value, lat: state.userLocation.lat, lng: state.userLocation.lng, pseudonym: state.pseudonym, expiresIn: 24 }) }, 8000);
-                toggleModal('modal-new-post', false); document.getElementById('post-input').value = ''; resetAudio(); setTimeout(fetchPosts, 1000);
-            } catch(e) { alert("Error al publicar. Revisa tu conexión."); } 
-            finally { btn.disabled = false; btn.innerText = "Publicar Ahora"; }
-        }
-
-        // --- MAPA (OPTIMIZADO PARA NO RE-RENDERIZAR SIEMPRE) ---
+        // --- MAPA (Leaflet) ---
         function initMap() {
-            if (state.mapInstance) return;
-            
-            // Fallback location to prevent crash before GPS
-            const lat = state.userLocation ? state.userLocation.lat : 40.4168; 
-            const lng = state.userLocation ? state.userLocation.lng : -3.7038;
-
-            state.mapInstance = L.map('map-view', { zoomControl: false, attributionControl: false }).setView([lat, lng], 18);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.mapInstance);
-            
-            state.markerCluster = L.markerClusterGroup({ 
-                showCoverageOnHover: false, 
-                // Cluster minimalista
-                iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) 
-            });
-            state.mapInstance.addLayer(state.markerCluster);
+            if(state.map) return;
+            state.map = L.map('map-view', { zoomControl: false }).setView([state.userLocation.lat, state.userLocation.lng], 18);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.map);
+            state.markers = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) });
+            state.map.addLayer(state.markers);
             updateUserMarker();
-            updateMapMarkers(state.loadedPosts);
+        }
+
+        function updateMapMarkers() {
+            if(!state.markers) return;
+            state.markers.clearLayers();
+            
+            // Mapa muestra TODO (filtro solo por categoría, NO por rango)
+            const visible = state.posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
+            
+            visible.forEach(p => {
+                const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
+                state.markers.addLayer(m);
+            });
         }
 
         function updateUserMarker() {
-            if(!state.mapInstance || !state.userLocation) return;
+            if(!state.map) return;
             const pulseClass = state.currentTab === 'radio' ? 'radio-pulse' : 'user-pulse';
             const icon = L.divIcon({ className: 'bg-transparent border-none', html: `<div class="${pulseClass}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
             
-            if(state.userMarker) { 
-                state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]); 
-                // Solo cambiar icono si cambia de tab
-                if(state.userMarker._icon && !state.userMarker._icon.innerHTML.includes(pulseClass)) state.userMarker.setIcon(icon);
-            } 
-            else { state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.mapInstance); }
-            
-            if(state.currentTab === 'radio') state.mapInstance.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true, duration: 1 });
+            if(state.userMarker) {
+                state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]);
+                if(!state.userMarker._icon.innerHTML.includes(pulseClass)) state.userMarker.setIcon(icon);
+            } else {
+                state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.map);
+            }
+            // Centrar mapa suavemente si es radio
+            if(state.currentTab === 'radio') state.map.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true, duration: 1 });
         }
 
-        function updateMapMarkers(posts) {
-            if (!state.markerCluster) return;
+        // --- RADIO (3 Metros) ---
+        function checkRadio() {
+            if(state.isRadioPlaying || !state.userLocation) return;
             
-            // MAPA MUESTRA TODOS LOS PUNTOS CARGADOS (SIN FILTRO DE RANGO)
-            state.markerCluster.clearLayers();
-            const filtered = posts.filter(p => state.activeFilter === 'all' || p.category === state.activeFilter);
-            
-            filtered.forEach(p => {
-                // Sin popup, solo marcador simple negro
-                const marker = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
-                state.markerCluster.addLayer(marker);
-            });
+            const candidates = state.posts
+                .filter(p => p.audio && p.distance <= 3 && !state.playedAudios.has(p.id))
+                .sort((a,b) => a.distance - b.distance);
+
+            if(candidates.length > 0) {
+                const post = candidates[0];
+                state.isRadioPlaying = true;
+                state.playedAudios.add(post.id);
+                
+                const info = document.getElementById('radio-playing-info');
+                info.classList.remove('hidden');
+                info.querySelector('.author').innerText = post.authorName;
+                
+                const audio = new Audio(post.audio);
+                audio.onended = () => {
+                    state.isRadioPlaying = false;
+                    info.classList.add('hidden');
+                    checkRadio(); // Siguiente
+                };
+                audio.play().catch(() => state.isRadioPlaying = false);
+                if(navigator.vibrate) navigator.vibrate(50);
+            }
         }
+
+        // --- PUBLICAR ---
+        window.publishPost = async () => {
+            const text = document.getElementById('post-input').value.trim();
+            const cat = document.getElementById('post-category').value;
+            const btn = document.getElementById('btn-publish');
+            
+            if((!text && !state.audioBlobBase64) || !state.userLocation) return;
+            
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                // Guardar directo a Firestore
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'posts'), {
+                    text: text,
+                    audio: state.audioBlobBase64,
+                    lat: state.userLocation.lat,
+                    lng: state.userLocation.lng,
+                    category: cat,
+                    authorUid: state.user.uid,
+                    authorName: state.user.displayName,
+                    likes: [],
+                    timestamp: serverTimestamp(),
+                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+                });
+                
+                toggleModal('modal-new-post', false);
+                document.getElementById('post-input').value = '';
+                resetAudio();
+            } catch(e) { alert("Error: " + e.message); } 
+            finally { btn.innerText = "Publicar"; btn.disabled = false; }
+        };
+
+        window.toggleLike = async (id) => {
+            if(!state.user) return;
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'posts', id);
+            const post = state.posts.find(p => p.id === id);
+            if(!post) return;
+            const isLiked = post.likes && post.likes.includes(state.user.uid);
+            
+            // Firestore Array update
+            await updateDoc(ref, {
+                likes: isLiked ? arrayRemove(state.user.uid) : arrayUnion(state.user.uid)
+            });
+        };
 
         // --- UTILS ---
-        async function startRecording() {
+        window.switchTab = (t) => {
+            state.currentTab = t;
+            ['feed','radio','map'].forEach(x => {
+                document.getElementById(`tab-${x}`).classList.toggle('text-black', x===t);
+                document.getElementById(`tab-${x}`).classList.toggle('text-gray-400', x!==t);
+            });
+            document.getElementById('feed-container').classList.toggle('hidden', t!=='feed');
+            document.getElementById('map-view-container').classList.toggle('hidden', t==='feed');
+            document.getElementById('radio-badge').classList.toggle('hidden', t!=='radio');
+            
+            if(t === 'map' || t === 'radio') {
+                setTimeout(() => { initMap(); if(state.map) state.map.invalidateSize(); updateUserMarker(); }, 100);
+            }
+            refreshUI();
+        };
+
+        // Audio
+        window.startRec = async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                state.mediaRecorder = new MediaRecorder(stream);
+                const s = await navigator.mediaDevices.getUserMedia({audio:true});
+                state.mediaRecorder = new MediaRecorder(s);
                 state.audioChunks = [];
                 state.mediaRecorder.ondataavailable = e => state.audioChunks.push(e.data);
-                state.mediaRecorder.onstop = () => { const r = new FileReader(); r.readAsDataURL(new Blob(state.audioChunks, { type: 'audio/webm' })); r.onloadend = () => { state.audioBlobBase64 = r.result; document.getElementById('audio-preview').classList.remove('hidden'); document.getElementById('audio-preview').innerHTML = `<audio controls src="${state.audioBlobBase64}" class="w-full h-8 mt-2"></audio>`; document.getElementById('btn-delete-audio').classList.remove('hidden'); }; };
-                state.mediaRecorder.start(); state.isRecording = true; document.getElementById('btn-record').classList.add('bg-red-500', 'text-white'); document.getElementById('recording-indicator').classList.remove('hidden');
-            } catch(e) { alert("Error micro"); }
-        }
-        function stopRecording() { if(state.isRecording) { state.mediaRecorder.stop(); state.isRecording = false; document.getElementById('btn-record').classList.remove('bg-red-500', 'text-white'); document.getElementById('recording-indicator').classList.add('hidden'); } }
-        function resetAudio() { state.audioBlobBase64 = null; document.getElementById('audio-preview').classList.add('hidden'); document.getElementById('btn-delete-audio').classList.add('hidden'); }
-        
-        function updateDistancesInUI() {
-            document.querySelectorAll('.post-card').forEach(c => {
-                const post = state.loadedPosts.find(p => p.id === c.dataset.id);
-                if(post && state.userLocation) {
-                    post.distance = getDist(state.userLocation, post);
-                    c.querySelector('.dist-label').innerText = formatDistance(post.distance);
+                state.mediaRecorder.onstop = () => {
+                    const r = new FileReader();
+                    r.readAsDataURL(new Blob(state.audioChunks, {type:'audio/webm'}));
+                    r.onloadend = () => {
+                        state.audioBlobBase64 = r.result;
+                        document.getElementById('audio-ui').innerHTML = `<audio controls src="${r.result}" class="w-full h-8"></audio>`;
+                        document.getElementById('btn-rec').classList.add('hidden');
+                        document.getElementById('del-audio').classList.remove('hidden');
+                    };
+                };
+                state.mediaRecorder.start();
+                document.getElementById('rec-status').classList.remove('hidden');
+            } catch(e) { alert("Micro bloqueado"); }
+        };
+        window.stopRec = () => { if(state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop(); document.getElementById('rec-status').classList.add('hidden'); };
+        window.resetAudio = () => { state.audioBlobBase64=null; document.getElementById('audio-ui').innerHTML=''; document.getElementById('del-audio').classList.add('hidden'); document.getElementById('btn-rec').classList.remove('hidden'); };
+
+        // GPS
+        navigator.geolocation.watchPosition(
+            (pos) => {
+                const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                // Solo actualizar si nos movemos > 2m para evitar jitter
+                if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
+                    state.userLocation = newLoc;
+                    document.getElementById('gps-loading').classList.add('hidden');
+                    refreshUI();
                 }
-            });
-        }
-        function toggleModal(id, show) { const el = document.getElementById(id); if(show) { el.classList.remove('hidden'); el.querySelector('div').classList.add('animate-slide-up'); } else el.classList.add('hidden'); }
+            },
+            (e) => console.log(e), { enableHighAccuracy: true }
+        );
+
+        // Helpers
+        window.toggleModal = (id, show) => { const el = document.getElementById(id); if(show) { el.classList.remove('hidden'); el.querySelector('div').classList.add('animate-slide-up'); } else el.classList.add('hidden'); };
         function getDist(p1, p2) { const R=6371e3, p=Math.PI/180, a=0.5-Math.cos((p2.lat-p1.lat)*p)/2+Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2; return 2*R*Math.asin(Math.sqrt(a)); }
-        function formatDistance(m) { return m<10?'Aquí':(m>=1000?(m/1000).toFixed(1)+'km':Math.round(m)+'m'); }
+        function formatDist(m) { return m<10?'Aquí':(m>=1000?(m/1000).toFixed(1)+'km':Math.round(m)+'m'); }
         function escapeHtml(t) { return t?t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])):''; }
-        function getTimeAgo(iso) { const s=Math.floor((new Date()-new Date(iso))/1000); if(s<60)return'ahora'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
-        function openProfile() { document.getElementById('prof-pseudo').value = state.pseudonym||''; toggleModal('modal-profile', true); }
+        function getTimeAgo(d) { const s=Math.floor((new Date()-d)/1000); if(s<60)return'ahora'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('rangeSlider').addEventListener('input', e => { state.range = parseInt(e.target.value); document.getElementById('rangeValue').innerText = formatDist(state.range); refreshUI(); });
+            const btnRec = document.getElementById('btn-rec');
+            btnRec.addEventListener('mousedown', startRec);
+            btnRec.addEventListener('mouseup', stopRec);
+            btnRec.addEventListener('touchstart', (e)=>{e.preventDefault();startRec()});
+            btnRec.addEventListener('touchend', (e)=>{e.preventDefault();stopRec()});
+            document.querySelectorAll('.cat-btn').forEach(b => b.addEventListener('click', e => {
+                document.querySelectorAll('.cat-btn').forEach(x => x.classList.remove('ring-2','ring-black'));
+                e.currentTarget.classList.add('ring-2','ring-black');
+                document.getElementById('post-category').value = e.currentTarget.dataset.cat;
+            }));
+        });
     </script>
 </head>
 <body class="text-brand-black h-[100dvh] flex flex-col overflow-hidden antialiased">
@@ -671,7 +441,7 @@
     <!-- HEADER -->
     <header class="glass-header sticky top-0 z-30 px-5 h-[60px] flex justify-between items-center">
         <h1 class="text-2xl font-black tracking-tighter">Whispr.</h1>
-        <div onclick="openProfile()" class="w-9 h-9 bg-black text-white rounded-full flex items-center justify-center text-sm font-bold shadow-lg"><i class="fas fa-user"></i></div>
+        <div onclick="toggleModal('modal-profile',true)" class="w-9 h-9 bg-black text-white rounded-full flex items-center justify-center text-sm font-bold shadow-lg"><i class="fas fa-user"></i></div>
     </header>
 
     <!-- FILTERS -->
@@ -682,85 +452,88 @@
             <span id="rangeValue" class="text-[10px] font-bold text-black w-12 text-right">50m</span>
         </div>
         <div class="flex overflow-x-auto px-5 gap-2 hide-scrollbar pb-2">
-            <button data-filter="all" class="filter-pill bg-black text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Todos</button>
-            <button data-filter="gossip" class="filter-pill bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Secretos</button>
-            <button data-filter="humor" class="filter-pill bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Humor</button>
-            <button data-filter="love" class="filter-pill bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Crush</button>
-            <button data-filter="idea" class="filter-pill bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Ideas</button>
-            <button data-filter="promo" class="filter-pill bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Planes</button>
+            <button onclick="state.activeFilter='all';refreshUI()" class="bg-black text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Todos</button>
+            <button onclick="state.activeFilter='gossip';refreshUI()" class="bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Secretos</button>
+            <button onclick="state.activeFilter='humor';refreshUI()" class="bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Humor</button>
+            <button onclick="state.activeFilter='love';refreshUI()" class="bg-white text-gray-500 border border-gray-200 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">Crush</button>
         </div>
     </div>
 
-    <!-- MAIN CONTENT -->
+    <!-- MAIN -->
     <main class="flex-1 relative overflow-hidden bg-gray-50">
         <div id="feed-container" class="absolute inset-0 overflow-y-auto pt-4 z-10 hide-scrollbar pb-32">
-            <div id="gps-loading" class="flex flex-col items-center justify-center h-full text-gray-300 gap-3">
-                <i class="fas fa-satellite-dish fa-spin text-2xl"></i>
-                <p class="text-[10px] font-bold uppercase tracking-widest">Iniciando...</p>
-            </div>
+            <div id="gps-loading" class="flex flex-col items-center justify-center h-full text-gray-300 gap-3"><i class="fas fa-satellite-dish fa-spin text-2xl"></i><p class="text-[10px] uppercase">Conectando...</p></div>
         </div>
         
         <div id="map-view-container" class="hidden absolute inset-0 z-0 bg-gray-100">
-            <div id="map-view" class="w-full h-full opacity-0 animate-fade-in" style="animation-fill-mode: forwards;"></div>
-            <div id="radio-status-badge" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-4 py-2 rounded-full flex items-center gap-2 z-[400] shadow-lg">
-                <div class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                <span class="text-xs font-bold tracking-widest">MODO RADIO ACTIVO</span>
+            <div id="map-view" class="w-full h-full opacity-0 animate-fade-in"></div>
+            <!-- Radio Badge -->
+            <div id="radio-badge" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-4 py-2 rounded-full flex items-center gap-2 z-[400] shadow-lg">
+                <div class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div><span class="text-xs font-bold tracking-widest">RADIO ACTIVA</span>
             </div>
-            <div id="radio-playing-info" class="absolute bottom-24 left-4 right-4 hidden z-[500]"></div>
+            <!-- Player -->
+            <div id="radio-playing-info" class="hidden absolute bottom-24 left-4 right-4 z-[500]">
+                <div class="bg-black/90 text-white backdrop-blur rounded-full px-5 py-3 shadow-xl border border-emerald-500/50 flex items-center gap-3">
+                    <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <div class="flex flex-col overflow-hidden"><span class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">ON AIR</span><span class="author text-xs font-bold truncate">...</span></div>
+                </div>
+            </div>
         </div>
     </main>
 
-    <!-- BOTTOM NAV -->
+    <!-- NAV -->
     <div class="fixed bottom-0 left-0 right-0 h-[80px] pointer-events-none z-40 flex justify-center items-end pb-6">
         <div class="glass-nav pointer-events-auto rounded-full shadow-float px-6 py-3 flex items-center gap-8 mb-2 mx-4">
-            <button id="tab-feed" class="btn-press flex flex-col items-center justify-center text-black w-12"><i class="fas fa-stream text-lg mb-1"></i><span class="text-[9px] font-bold">LISTA</span></button>
-            <button id="tab-radio" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-broadcast-tower text-lg mb-1"></i><span class="text-[9px] font-bold">RADIO</span></button>
-            <button id="tab-map" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-map text-lg mb-1"></i><span class="text-[9px] font-bold">MAPA</span></button>
+            <button id="tab-feed" onclick="switchTab('feed')" class="btn-press flex flex-col items-center justify-center text-black w-12"><i class="fas fa-stream text-lg mb-1"></i><span class="text-[9px] font-bold">LISTA</span></button>
+            <button id="tab-radio" onclick="switchTab('radio')" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-broadcast-tower text-lg mb-1"></i><span class="text-[9px] font-bold">RADIO</span></button>
+            <button id="tab-map" onclick="switchTab('map')" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-map text-lg mb-1"></i><span class="text-[9px] font-bold">MAPA</span></button>
         </div>
-        <button id="btn-add-center" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50"><i class="fas fa-plus text-xl"></i></button>
+        <button onclick="toggleModal('modal-new-post',true)" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50"><i class="fas fa-plus text-xl"></i></button>
     </div>
 
     <!-- MODALS -->
     <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center">
         <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up">
-            <div class="flex justify-between items-center mb-6"><span class="text-xs font-black text-gray-300 uppercase">Nuevo Whispr</span><button id="btn-close-post"><i class="fas fa-times text-gray-500"></i></button></div>
+            <div class="flex justify-between items-center mb-6"><span class="text-xs font-black text-gray-300 uppercase">Nuevo Whispr</span><button onclick="toggleModal('modal-new-post',false)"><i class="fas fa-times text-gray-500"></i></button></div>
             <div class="flex justify-between mb-6 px-2">
-                <button data-cat="gossip" class="cat-select w-10 h-10 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md"><i class="fas fa-user-secret"></i></button>
-                <button data-cat="humor" class="cat-select w-10 h-10 rounded-full bg-yellow-300 text-yellow-900 flex items-center justify-center shadow-md"><i class="fas fa-laugh"></i></button>
-                <button data-cat="love" class="cat-select w-10 h-10 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-heart"></i></button>
-                <button data-cat="idea" class="cat-select w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-lightbulb"></i></button>
-                <button data-cat="promo" class="cat-select w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-beer"></i></button>
+                <button data-cat="gossip" class="cat-btn w-10 h-10 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md"><i class="fas fa-user-secret"></i></button>
+                <button data-cat="humor" class="cat-btn w-10 h-10 rounded-full bg-yellow-300 text-yellow-900 flex items-center justify-center shadow-md"><i class="fas fa-laugh"></i></button>
+                <button data-cat="love" class="cat-btn w-10 h-10 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-heart"></i></button>
+                <button data-cat="idea" class="cat-btn w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-lightbulb"></i></button>
+                <button data-cat="promo" class="cat-btn w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md"><i class="fas fa-beer"></i></button>
             </div>
             <input type="hidden" id="post-category" value="gossip">
             <textarea id="post-input" rows="4" class="w-full text-xl font-medium placeholder-gray-300 border-none focus:ring-0 resize-none p-2 bg-transparent" placeholder="Cuenta algo..."></textarea>
             <div class="flex items-center gap-3 mt-4 bg-gray-50 p-3 rounded-2xl">
-                <button id="btn-record" class="w-10 h-10 rounded-full bg-white text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
-                <div class="flex-1 overflow-hidden"><p id="recording-indicator" class="text-xs text-red-500 font-bold hidden animate-pulse">Grabando...</p><div id="audio-preview" class="hidden"></div></div>
-                <button id="btn-delete-audio" class="hidden text-gray-400"><i class="fas fa-trash"></i></button>
+                <button id="btn-rec" class="w-10 h-10 rounded-full bg-white text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
+                <div class="flex-1 overflow-hidden"><p id="rec-status" class="text-xs text-red-500 font-bold hidden animate-pulse">Grabando...</p><div id="audio-ui"></div></div>
+                <button id="del-audio" onclick="resetAudio()" class="hidden text-gray-400"><i class="fas fa-trash"></i></button>
             </div>
-            <button id="btn-publish" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg mt-6">Publicar Ahora</button>
+            <button id="btn-publish" onclick="publishPost()" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg mt-6">Publicar</button>
         </div>
     </div>
 
+    <!-- AUTH MODAL -->
     <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white flex flex-col items-center justify-center p-8 animate-fade-in">
         <h1 class="text-5xl font-black tracking-tighter mb-2">Whispr.</h1>
-        <p class="text-gray-400 mb-10 text-sm font-medium">Servidor Real. Login Seguro.</p>
+        <p class="text-gray-400 mb-10 text-sm font-medium">Servidor Real. Sin Lag.</p>
         <div class="w-full max-w-xs space-y-4">
             <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-2xl px-5 py-4 font-bold text-sm focus:ring-2 ring-black" placeholder="Usuario">
             <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-2xl px-5 py-4 font-bold text-sm focus:ring-2 ring-black" placeholder="Contraseña">
-            <button id="auth-submit" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg">Entrar / Registrar</button>
+            <button id="auth-submit" onclick="handleAuth()" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg">Entrar / Registrar</button>
         </div>
     </div>
 
-    <div id="modal-comments" class="hidden fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center">
-        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 flex flex-col h-[70vh] shadow-2xl animate-slide-up">
-            <div class="flex justify-between items-center mb-4 border-b border-gray-50 pb-4"><span class="text-xs font-black text-gray-300 uppercase">Comentarios</span><button id="btn-close-comments"><i class="fas fa-chevron-down text-gray-400"></i></button></div>
-            <div id="comments-list" class="flex-1 overflow-y-auto mb-4 hide-scrollbar"></div>
-            <div class="flex gap-3 mt-4"><input id="comment-input" class="flex-1 bg-gray-100 border-none rounded-full px-5 text-sm font-medium focus:ring-2 ring-black" placeholder="Escribe algo..."><button id="btn-send-comment" class="w-10 h-10 bg-black text-white rounded-full shadow-lg flex items-center justify-center"><i class="fas fa-paper-plane text-xs"></i></button></div>
+    <!-- PROFILE MODAL -->
+    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6">
+        <div class="bg-white w-full max-w-xs rounded-3xl p-8 text-center shadow-2xl animate-slide-up relative">
+            <button onclick="toggleModal('modal-profile',false)" class="absolute top-4 right-4 text-gray-300 hover:text-black"><i class="fas fa-times"></i></button>
+            <div class="w-24 h-24 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-3xl shadow-lg"><i class="fas fa-user-astronaut"></i></div>
+            <h3 class="text-lg font-bold mb-6">Tu Perfil</h3>
+            <input id="prof-pseudo" readonly class="w-full bg-gray-50 border-none rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-500">
+            <button onclick="doLogout()" class="text-red-500 text-xs font-bold py-2">Cerrar Sesión</button>
         </div>
     </div>
-    
-    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6"><div class="bg-white w-full max-w-xs rounded-3xl p-8 text-center shadow-2xl animate-slide-up relative"><button onclick="toggleModal('modal-profile', false)" class="absolute top-4 right-4 text-gray-300 hover:text-black"><i class="fas fa-times"></i></button><div class="w-24 h-24 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-3xl shadow-lg"><i class="fas fa-user-astronaut"></i></div><h3 class="text-lg font-bold mb-6">Tu Perfil</h3><input id="prof-pseudo" readonly class="w-full bg-gray-50 border-none rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-500"><button id="btn-logout" class="text-red-500 text-xs font-bold py-2">Cerrar Sesión</button></div></div>
 
 </body>
 </html>
