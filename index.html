@@ -3,69 +3,290 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#ffffff">
-    
-    <!-- CSP -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' * data: blob: 'unsafe-inline' 'unsafe-eval';">
-    
     <title>Whispr</title>
-
-    <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Mapas -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css"/>
-    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- PWA Config -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#111827">
 
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: { brand: { black: '#050505', gray: '#FAFAFA' } },
-                    animation: {
-                        'fade-in': 'fadeIn 0.4s ease-out forwards',
-                        'slide-up': 'slideUp 0.3s ease-out forwards',
-                        'pulse-radar': 'pulseRadar 2s infinite',
-                    },
-                    keyframes: {
-                        fadeIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
-                        slideUp: { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } },
-                        pulseRadar: { '0%': { transform: 'scale(0.8)', opacity: '0.7' }, '100%': { transform: 'scale(2.5)', opacity: '0' } }
-                    }
-                }
-            }
-        }
+      // Registrar el Service Worker al iniciar la app
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js')
+            .then(reg => console.log('Service Worker registrado con éxito:', reg))
+            .catch(err => console.error('Error al registrar Service Worker:', err));
+        });
+      }
     </script>
 
-    <style>
-        body { padding-bottom: env(safe-area-inset-bottom); -webkit-tap-highlight-color: transparent; background-color: #FAFAFA; }
-        .glass-nav { background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.5); }
-        .glass-header { background: rgba(255, 255, 255, 0.90); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(0,0,0,0.03); }
-        .btn-press:active { transform: scale(0.95); }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        #map-view-container { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
-        
-        .custom-cluster-icon div { width: 32px; height: 32px; line-height: 32px; text-align: center; background: #111; color: white; border-radius: 50%; font-weight: 700; font-size: 11px; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .user-pulse { width: 16px; height: 16px; background: #2563EB; border: 2px solid white; border-radius: 50%; animation: pulse-ring 2s infinite; }
-        .radio-pulse { width: 16px; height: 16px; background: #10B981; border: 2px solid white; border-radius: 50%; animation: pulse-ring-green 2s infinite; }
-        @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
-        @keyframes pulse-ring-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
-        
-        audio { height: 30px; border-radius: 20px; width: 100%; }
-        audio::-webkit-media-controls-panel { background-color: #f3f4f6; }
-        audio::-webkit-media-controls-play-button { background-color: #e5e7eb; border-radius: 50%; }
-    </style>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
-    <!-- FIREBASE -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --safe-bottom: env(safe-area-inset-bottom, 16px);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            /* Solución moderna para navegadores móviles (dvh) */
+            height: 100dvh; 
+            width: 100vw;
+            overflow: hidden;
+            background-color: #f8fafc;
+            touch-action: none; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        /* Avatares en el mapa */
+        .user-marker-self {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 3px solid #3b82f6;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+            animation: pulse-blue 2s infinite;
+            background-color: white;
+            overflow: hidden;
+        }
+
+        .whisper-avatar-marker {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 3px solid #a855f7; /* Purple */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            background-color: #f3e8ff;
+            overflow: hidden;
+            transition: transform 0.2s;
+            position: relative;
+        }
+        
+        .whisper-avatar-marker::after {
+            content: '\f04b'; /* FontAwesome play icon */
+            font-family: "Font Awesome 6 Free";
+            font-weight: 900;
+            position: absolute;
+            bottom: -4px;
+            right: -4px;
+            background: #a855f7;
+            color: white;
+            font-size: 8px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+        }
+
+        .whisper-avatar-marker:active {
+            transform: scale(0.9);
+        }
+
+        @keyframes pulse-blue {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+            70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+            70% { box-shadow: 0 0 0 30px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        
+        .leaflet-control-attribution { display: none !important; }
+
+        /* Ajustes de scroll oculto para el feed */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Animaciones UI */
+        .slide-up { animation: slideUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes slideUpFade {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="text-gray-800 antialiased relative">
+
+    <!-- Notificaciones flotantes -->
+    <div id="toast-container" class="fixed top-20 left-0 right-0 z-[100] flex flex-col items-center pointer-events-none space-y-2 px-4"></div>
+
+    <!-- Pantalla de Autenticación -->
+    <div id="auth-screen" class="fixed inset-0 z-[100] flex items-center justify-center bg-gray-50 transition-opacity duration-500">
+        <div class="p-8 w-full max-w-md flex flex-col items-center">
+            <div class="w-20 h-20 bg-gradient-to-tr from-purple-600 to-blue-500 rounded-3xl flex items-center justify-center text-white text-4xl mb-6 shadow-xl transform rotate-3">
+                <i class="fa-solid fa-microphone-lines -rotate-3"></i>
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight mb-2 text-gray-900">Whispr</h1>
+            <p class="text-gray-500 mb-10 text-center text-sm font-medium">Conecta con el mundo a través de tu voz.</p>
+
+            <div class="w-full space-y-4">
+                <div class="relative">
+                    <i class="fa-solid fa-at absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                    <input type="text" id="username-input" placeholder="Nombre de usuario" class="w-full pl-12 pr-4 py-4 rounded-2xl border-0 bg-white shadow-sm ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-inset focus:ring-purple-600 transition-all" />
+                </div>
+                <div class="relative">
+                    <i class="fa-solid fa-lock absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                    <input type="password" id="password-input" placeholder="Contraseña" class="w-full pl-12 pr-4 py-4 rounded-2xl border-0 bg-white shadow-sm ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-inset focus:ring-purple-600 transition-all" />
+                </div>
+                
+                <div class="pt-4 space-y-3">
+                    <button id="btn-login" class="w-full bg-gray-900 text-white font-semibold py-4 rounded-2xl hover:bg-gray-800 transition-colors shadow-md active:scale-95 transform">
+                        Iniciar Sesión
+                    </button>
+                    <button id="btn-register" class="w-full bg-purple-50 text-purple-700 font-semibold py-4 rounded-2xl hover:bg-purple-100 transition-colors active:scale-95 transform">
+                        Crear nueva cuenta
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenedor Principal de la App -->
+    <div id="app-screen" class="hidden absolute inset-0 w-full h-full flex flex-col bg-gray-100">
+        
+        <!-- Header superior estilo Social -->
+        <header class="glass-panel h-16 w-full fixed top-0 z-[40] flex justify-between items-center px-4 shadow-sm">
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white text-sm">
+                    <i class="fa-solid fa-microphone"></i>
+                </div>
+                <span class="font-bold text-xl tracking-tight text-gray-900">Whispr</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <!-- Botón Fullscreen -->
+                <button id="btn-fullscreen" class="text-gray-400 hover:text-gray-700 transition-colors text-lg p-2 active:scale-90 transform">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+
+                <!-- Perfil Clickable -->
+                <div id="profile-btn" class="flex items-center bg-gray-100 rounded-full pr-3 pl-1 py-1 cursor-pointer group hover:bg-gray-200 transition-colors">
+                    <div class="relative">
+                        <img id="header-avatar" src="" class="w-7 h-7 rounded-full mr-2 bg-white object-cover" />
+                        <div class="absolute inset-0 bg-black/40 rounded-full w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <i class="fa-solid fa-camera text-white text-[10px]"></i>
+                        </div>
+                    </div>
+                    <span id="current-username-display" class="font-semibold text-xs text-gray-700">@user</span>
+                </div>
+                <input type="file" id="pfp-upload" accept="image/*" class="hidden" />
+                
+                <button id="btn-logout" class="text-gray-400 hover:text-red-500 transition-colors text-lg p-2">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Área Central (Mapa o Feed) -->
+        <main class="flex-1 relative mt-16 pb-20"> <!-- pb-20 para dejar espacio al bottom nav -->
+            <!-- MAPA -->
+            <div id="view-map" class="absolute inset-0 w-full h-full">
+                <div id="map"></div>
+            </div>
+
+            <!-- FEED (Oculto por defecto) -->
+            <div id="view-feed" class="hidden absolute inset-0 w-full h-full bg-gray-50 overflow-y-auto hide-scrollbar p-4">
+                <h2 class="text-lg font-bold text-gray-900 mb-4 px-2">Cerca de ti</h2>
+                <div id="feed-list" class="space-y-3 pb-24">
+                    <!-- Cards de audios inyectadas aquí -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Reproductor Mini Flotante (Se muestra arriba del nav) -->
+        <div id="player-ui" class="fixed bottom-24 left-4 right-4 z-[45] glass-panel rounded-2xl p-3 shadow-xl hidden transform transition-transform">
+            <div class="flex items-center space-x-3">
+                <img id="player-avatar" src="" class="w-12 h-12 rounded-full border border-gray-200" />
+                <div class="flex-1 min-w-0">
+                    <p id="player-author" class="text-sm font-bold text-gray-900 truncate">@autor</p>
+                    <div class="bg-gray-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div id="player-progress" class="bg-purple-600 h-full w-0 transition-all duration-100"></div>
+                    </div>
+                </div>
+                <button id="btn-close-player" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 active:scale-90 transition-transform flex-shrink-0">
+                    <i class="fa-solid fa-stop"></i>
+                </button>
+            </div>
+            <audio id="audio-element" hidden></audio>
+        </div>
+
+        <!-- Bottom Navigation Bar (Fija y adaptada a safe-area móvil) -->
+        <nav class="glass-panel fixed bottom-0 left-0 right-0 z-[50] flex justify-around items-center h-16 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]" style="padding-bottom: var(--safe-bottom); height: calc(64px + var(--safe-bottom));">
+            <!-- Tab Mapa -->
+            <button id="nav-map" class="flex-1 flex flex-col items-center justify-center text-purple-600 h-full transition-colors">
+                <i class="fa-solid fa-map-location-dot text-xl mb-1"></i>
+                <span class="text-[10px] font-semibold">Mapa</span>
+            </button>
+
+            <!-- Botón FAB Flotante Central (El "+") -->
+            <div class="flex-1 flex justify-center relative">
+                <button id="btn-open-record" class="absolute -top-10 w-16 h-16 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg shadow-purple-500/40 text-2xl active:scale-90 transition-transform border-4 border-white">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+            </div>
+
+            <!-- Tab Feed -->
+            <button id="nav-feed" class="flex-1 flex flex-col items-center justify-center text-gray-400 hover:text-gray-900 h-full transition-colors">
+                <i class="fa-solid fa-bars-staggered text-xl mb-1"></i>
+                <span class="text-[10px] font-semibold">Muro</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Overlay Pantalla Completa para Grabar (Inmersivo) -->
+    <div id="record-overlay" class="fixed inset-0 z-[60] bg-gray-900/95 backdrop-blur-md hidden flex-col items-center justify-center text-white transition-opacity duration-300 opacity-0">
+        <button id="btn-close-record" class="absolute top-8 left-6 text-3xl text-gray-400 p-2">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        
+        <h3 class="text-2xl font-semibold mb-2">Deja tu nota</h3>
+        <p class="text-gray-400 mb-12">Se anclará a tu ubicación actual</p>
+
+        <!-- Botón gigante de grabar -->
+        <button id="btn-record-action" class="w-32 h-32 bg-purple-600 rounded-full flex items-center justify-center text-5xl shadow-[0_0_40px_rgba(147,51,234,0.5)] transition-all">
+            <i class="fa-solid fa-microphone"></i>
+        </button>
+        
+        <div id="record-timer-container" class="mt-8 text-center hidden slide-up">
+            <p class="text-red-400 font-mono text-3xl tracking-widest" id="record-timer">00:00</p>
+            <p class="text-gray-500 text-sm mt-2">Grabando... Toca para publicar</p>
+        </div>
+        
+        <p id="record-hint" class="mt-8 text-gray-400 text-sm">Toca el micrófono para empezar</p>
+    </div>
+
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, doc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, deleteDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyAxp3akXJZXC6qrw6LhqNRFRS-Z1vUHb8A",
@@ -73,519 +294,561 @@
             projectId: "whispr-89c76",
             storageBucket: "whispr-89c76.firebasestorage.app",
             messagingSenderId: "215012367928",
-            appId: "1:215012367928:web:6a49d53d2ccaf73097d0cd",
-            measurementId: "G-8NCRCLJKBE"
+            appId: "1:215012367928:web:9b8a23d13d60570297d0cd",
+            measurementId: "G-19WRV2H4SD"
         };
 
-        const collectionAppId = typeof __app_id !== 'undefined' ? __app_id : 'whispr-prod';
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        window.state = {
-            user: null,
-            userLocation: null,
-            range: 50,
-            currentTab: 'feed',
-            posts: [],
-            map: null,
-            markers: null,
-            userMarker: null,
-            isRadioPlaying: false,
-            radioEnabled: false,
-            playedAudios: new Set(),
-            audioBlobBase64: null,
-            mediaRecorder: null,
-            audioChunks: [],
-            isRecording: false,
-            recordStartTime: 0,
-            recordInterval: null,
-            radioAudioElement: new Audio(),
-            hasUserInteracted: false
-        };
+        const appId = "whispr-app";
+        const whispersCollection = collection(db, 'artifacts', appId, 'public', 'data', 'audios');
+        // Regla obligatoria: No usar orderBy complejos. Obtenemos todo y ordenamos en local.
 
-        // --- AUTH ---
-        window.handleAuth = async () => {
-            const userIn = document.getElementById('auth-username').value.trim();
-            const passIn = document.getElementById('auth-password').value;
-            if(!userIn || !passIn) return alert("Faltan datos");
+        // Estado Global
+        let map = null;
+        let userMarkerObj = null;
+        let userLocation = null;
+        let watchPositionId = null;
+        let currentUsername = "";
+        let markers = {}; 
+        let whispersData = []; // Para el feed
+        
+        // Estado Autoplay
+        const autoPlayedNotes = new Map();
+        const AUTOPLAY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos de cooldown invisible
+        
+        // Estado UI Navigation
+        let currentTab = 'map'; // 'map' o 'feed'
+
+        // Helpers de Avatar y UI
+        const getAvatarUrl = (seed) => `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}&backgroundColor=e9d5ff`;
+        const getEmail = (username) => `${username.trim().toLowerCase()}@whisp.er`;
+
+        // Función para forzar Fullscreen
+        function enterFullScreen() {
+            const docElm = document.documentElement;
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                if (docElm.requestFullscreen) docElm.requestFullscreen().catch(() => {});
+                else if (docElm.webkitRequestFullscreen) docElm.webkitRequestFullscreen(); // Safari/iOS
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `glass-panel px-6 py-3 rounded-full shadow-lg text-sm font-semibold slide-up max-w-[90%] text-center border-t-4`;
             
-            const fakeEmail = `${userIn.toLowerCase().replace(/\s/g,'')}@whispr.app`;
-            const btn = document.getElementById('auth-submit');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            btn.disabled = true;
+            if (type === 'error') toast.classList.add('border-red-500', 'text-gray-900');
+            else if (type === 'success') toast.classList.add('border-green-500', 'text-gray-900');
+            else toast.classList.add('border-purple-500', 'text-gray-900');
+            
+            toast.innerText = message;
+            document.getElementById('toast-container').appendChild(toast);
 
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-20px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // --- Autenticación ---
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            enterFullScreen(); // Pantalla completa al tocar entrar
+            const user = document.getElementById('username-input').value;
+            const pass = document.getElementById('password-input').value;
+            if(!user || !pass) return showToast('Completa ambos campos', 'error');
+            
+            const btn = document.getElementById('btn-login');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
             try {
-                await signInWithEmailAndPassword(auth, fakeEmail, passIn);
-            } catch (e) {
-                if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found') {
-                    if (confirm("Usuario no encontrado. ¿Crear cuenta nueva?")) {
-                        try {
-                            const cred = await createUserWithEmailAndPassword(auth, fakeEmail, passIn);
-                            await updateProfile(cred.user, { displayName: userIn });
-                        } catch (regErr) { alert("Error registro: " + regErr.message); }
-                    }
-                } else { alert("Error login: " + e.message); }
-            } finally { btn.innerText = "Entrar / Registrar"; btn.disabled = false; }
-        };
-
-        window.doLogout = () => signOut(auth);
-
-        onAuthStateChanged(auth, (user) => {
-            state.user = user;
-            if (user) {
-                document.getElementById('modal-auth').classList.add('hidden');
-                document.getElementById('prof-pseudo').value = user.displayName || 'Anon';
-                initRealtimeListener();
-            } else {
-                document.getElementById('modal-auth').classList.remove('hidden');
+                await signInWithEmailAndPassword(auth, getEmail(user), pass);
+            } catch (error) {
+                showToast('Credenciales incorrectas', 'error');
+                btn.innerHTML = 'Iniciar Sesión';
             }
         });
 
-        // --- DATA ---
-        let unsubscribe = null;
-        function initRealtimeListener() {
-            if(unsubscribe) unsubscribe();
-            const postsRef = collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts');
-            const q = query(postsRef, orderBy('timestamp', 'desc'), limit(150));
+        document.getElementById('btn-register').addEventListener('click', async () => {
+            enterFullScreen(); // Pantalla completa al tocar registro
+            const user = document.getElementById('username-input').value;
+            const pass = document.getElementById('password-input').value;
+            if(!user || !pass) return showToast('Completa ambos campos', 'error');
+            if(pass.length < 6) return showToast('Contraseña corta (mínimo 6)', 'error');
+            
+            try {
+                await createUserWithEmailAndPassword(auth, getEmail(user), pass);
+                showToast('Cuenta creada con éxito', 'success');
+            } catch (error) {
+                showToast('Usuario no disponible', 'error');
+            }
+        });
 
-            unsubscribe = onSnapshot(q, (snapshot) => {
-                const now = new Date();
-                state.posts = snapshot.docs.map(doc => {
-                    const d = doc.data();
-                    const ts = d.timestamp ? d.timestamp.toDate() : new Date();
-                    const exp = d.expiresAt ? d.expiresAt.toDate() : null;
-                    return { 
-                        id: doc.id, 
-                        ...d, 
-                        lat: parseFloat(d.lat), 
-                        lng: parseFloat(d.lng),
-                        timestamp: ts, 
-                        expiresAt: exp 
-                    };
-                }).filter(p => !p.expiresAt || p.expiresAt > now);
-                refreshUI();
-            });
+        document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUsername = user.email.split('@')[0];
+                document.getElementById('current-username-display').innerText = `@${currentUsername}`;
+                document.getElementById('header-avatar').src = user.photoURL || getAvatarUrl(currentUsername);
+                
+                document.getElementById('auth-screen').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('auth-screen').classList.add('hidden');
+                    document.getElementById('app-screen').classList.remove('hidden');
+                    initApp();
+                }, 400);
+            } else {
+                document.getElementById('auth-screen').classList.remove('hidden');
+                document.getElementById('auth-screen').style.opacity = '1';
+                document.getElementById('app-screen').classList.add('hidden');
+                cleanupApp();
+            }
+        });
+
+        function initApp() {
+            if(!map) {
+                map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+            }
+
+            // Autoplay fullscreen al entrar (requiere interacción del usuario primero)
+            const autoFS = () => {
+                enterFullScreen();
+                document.removeEventListener('click', autoFS);
+                document.removeEventListener('touchstart', autoFS);
+            };
+            document.addEventListener('click', autoFS);
+            document.addEventListener('touchstart', autoFS);
+
+            if ("geolocation" in navigator) {
+                watchPositionId = navigator.geolocation.watchPosition(
+                    updateUserLocation,
+                    (err) => showToast("Necesitamos tu ubicación para descubrir notas", "error"),
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                );
+            }
+            listenToWhispers();
         }
 
-        // --- UI ---
-        window.refreshUI = () => {
-            const currentLoc = state.userLocation || {lat: 0, lng: 0};
-            state.posts.forEach(p => p.distance = getDist(currentLoc, p));
+        function updateUserLocation(position) {
+            userLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
+
+            if (!userMarkerObj) {
+                const avatarSrc = auth.currentUser?.photoURL || getAvatarUrl(currentUsername);
+                const userIcon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div class='user-marker-self'><img src="${avatarSrc}" class="w-full h-full object-cover"/></div>`,
+                    iconSize: [32, 32], iconAnchor: [16, 16]
+                });
+                userMarkerObj = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(map);
+                map.setView([userLocation.lat, userLocation.lng], 16);
+            } else {
+                userMarkerObj.setLatLng([userLocation.lat, userLocation.lng]);
+            }
+            updateFeedList(); // Recalcular distancias si el usuario se mueve
+        }
+
+        function cleanupApp() {
+            if(watchPositionId) navigator.geolocation.clearWatch(watchPositionId);
+            closePlayer();
+            userLocation = null;
+            userMarkerObj = null;
+            if(map) map.eachLayer(l => { if (l instanceof L.Marker) map.removeLayer(l); });
+            markers = {};
+            whispersData = [];
+        }
+
+        function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; 
+            const p1 = lat1 * Math.PI/180;
+            const p2 = lat2 * Math.PI/180;
+            const dp = (lat2-lat1) * Math.PI/180;
+            const dl = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function timeAgo(timestamp) {
+            if (!timestamp) return 'Hace un momento';
+            const seconds = Math.floor((new Date() - timestamp.toDate()) / 1000);
+            if (seconds < 60) return 'Hace un momento';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `Hace ${minutes} min`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `Hace ${hours} h`;
+            return `Hace ${Math.floor(hours / 24)} d`;
+        }
+
+        const audioElement = document.getElementById('audio-element');
+        let playInterval = null;
+
+        window.handlePlayAttempt = function(audioId, author, lat, lng) {
+            if(!userLocation) return showToast("Buscando tu ubicación...", "info");
+            const dist = getDistanceInMeters(userLocation.lat, userLocation.lng, lat, lng);
             
-            if(state.currentTab === 'feed') renderFeed();
-            // Actualizar siempre el mapa si está visible
-            if(state.currentTab === 'map' || state.currentTab === 'radio') updateMapMarkers();
-            if(state.currentTab === 'radio' && state.radioEnabled) checkRadio();
+            if (dist <= 50) {
+                playAudio(audioId, author);
+            } else {
+                showToast(`🔒 Debes acercarte ${Math.round(dist - 50)}m más para desbloquearlo`, "error");
+            }
         };
 
-        function renderFeed() {
-            const container = document.getElementById('feed-container');
-            if (!state.userLocation) {
-                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm animate-pulse">Esperando GPS...</div>`;
-                return;
-            }
-            const filtered = state.posts
-                .filter(p => p.distance <= state.range)
-                .sort((a,b) => a.distance - b.distance);
+        function playAudio(audioId, author) {
+            const playerUI = document.getElementById('player-ui');
+            document.getElementById('player-author').innerText = `@${author}`;
+            document.getElementById('player-avatar').src = getAvatarUrl(author);
+            
+            playerUI.classList.remove('hidden');
+            
+            audioElement.src = `https://greenbase.arielcapdevila.com/file/${audioId}`;
+            audioElement.play().catch((err) => { 
+                if(err.name === 'NotAllowedError') showToast("Toca la pantalla para escuchar los ecos 👆", "info");
+                else showToast("Error al reproducir", "error"); 
+                closePlayer(); 
+            });
 
-            container.innerHTML = '';
-            if(filtered.length === 0) {
-                container.innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">Nada en ${state.range}m.</div>`;
-                return;
-            }
-            filtered.forEach(p => container.appendChild(createCard(p)));
-            container.appendChild(document.createElement('div')).className = 'h-32';
+            audioElement.onplay = () => {
+                clearInterval(playInterval);
+                playInterval = setInterval(() => {
+                    const pct = (audioElement.currentTime / audioElement.duration) * 100;
+                    document.getElementById('player-progress').style.width = `${pct}%`;
+                }, 100);
+            };
+            audioElement.onended = closePlayer;
         }
 
-        function createCard(p) {
-            const div = document.createElement('div');
-            div.className = "post-card bg-white p-5 mb-4 rounded-2xl shadow-soft border border-gray-50 mx-4 animate-fade-in";
-            const isLiked = p.likes && p.likes.includes(state.user.uid);
-
-            div.innerHTML = `
-                <div class="flex justify-between items-start mb-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">${p.authorName ? p.authorName.substring(0,2).toUpperCase() : '?'}</div>
-                        <div class="flex flex-col"><span class="font-bold text-sm">${p.authorName || 'Anon'}</span><span class="text-[10px] text-gray-400">${getTimeAgo(p.timestamp)}</span></div>
-                    </div>
-                    <span class="text-[10px] font-bold text-gray-400 bg-gray-50 px-2 py-1 rounded-full">${formatDist(p.distance)}</span>
-                </div>
-                <div class="mb-4 pl-10">
-                    <div class="w-1.5 h-1.5 rounded-full mb-2 bg-black"></div>
-                    <p class="text-gray-800 text-[15px] whitespace-pre-line">${escapeHtml(p.text)}</p>
-                    ${p.audio ? `<div class="mt-3 flex items-center bg-gray-50 rounded-xl p-2 border border-gray-100"><div onclick="state.radioAudioElement.src='${p.audio}'; state.radioAudioElement.play()" class="w-8 h-8 bg-black text-white rounded-full flex items-center justify-center mr-3 cursor-pointer"><i class="fas fa-play text-xs"></i></div><span class="text-xs text-gray-400">Audio</span></div>` : ''}
-                </div>
-                <div class="flex items-center pl-10 gap-6">
-                    <button onclick="toggleLike('${p.id}')" class="flex items-center gap-1.5 ${isLiked ? 'text-orange-500' : 'text-gray-400'}"><i class="${isLiked ? 'fas' : 'fas'} fa-fire text-lg"></i><span class="text-xs font-bold">${p.likes ? p.likes.length : 0}</span></button>
-                </div>
-            `;
-            return div;
+        function closePlayer() {
+            audioElement.pause();
+            audioElement.currentTime = 0;
+            clearInterval(playInterval);
+            document.getElementById('player-progress').style.width = `0%`;
+            document.getElementById('player-ui').classList.add('hidden');
         }
+        document.getElementById('btn-close-player').addEventListener('click', closePlayer);
 
-        // --- MAPA ---
-        function initMap() {
-            if(state.map) return;
-            const lat = state.userLocation ? state.userLocation.lat : 40.4168;
-            const lng = state.userLocation ? state.userLocation.lng : -3.7038;
-            state.map = L.map('map-view', { zoomControl: false }).setView([lat, lng], 18);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(state.map);
-            state.markers = L.markerClusterGroup({ showCoverageOnHover: false, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'custom-cluster-icon', iconSize: L.point(32, 32) }) });
-            state.map.addLayer(state.markers);
-            updateUserMarker();
-            updateMapMarkers(); // Importante inicializar marcadores
+        // Eliminar nota propia
+        window.deleteWhisper = async function(id) {
+            showToast("Borrando nota...", "info");
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'audios', id));
+                showToast("Nota eliminada del mundo", "success");
+            } catch(e) {
+                console.error(e);
+                showToast("No se pudo eliminar la nota", "error");
+            }
+        };
+
+        // -- Lógica del Feed y Mapa --
+        function listenToWhispers() {
+            onSnapshot(whispersCollection, (snapshot) => {
+                whispersData = [];
+                snapshot.forEach(doc => {
+                    whispersData.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Renderizar Mapa
+                updateMapMarkers();
+                // Renderizar Feed si está activo
+                if(currentTab === 'feed') updateFeedList();
+
+            }, (err) => console.error(err));
         }
 
         function updateMapMarkers() {
-            if(!state.markers) return;
-            state.markers.clearLayers();
-            state.posts.forEach(p => {
-                if(p.lat && p.lng) {
-                    const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ html: `<div class="text-black text-3xl drop-shadow-md"><i class="fas fa-map-pin"></i></div>`, className: 'bg-transparent border-none', iconSize: [30, 40], iconAnchor: [15, 38] }) });
-                    state.markers.addLayer(m);
-                }
-            });
-        }
+            // Limpiar antiguos
+            Object.values(markers).forEach(m => map.removeLayer(m));
+            markers = {};
 
-        function updateUserMarker() {
-            if(!state.map || !state.userLocation) return;
-            const pulseClass = state.currentTab === 'radio' ? 'radio-pulse' : 'user-pulse';
-            const icon = L.divIcon({ className: 'bg-transparent border-none', html: `<div class="${pulseClass}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
-            
-            if(state.userMarker) {
-                state.userMarker.setLatLng([state.userLocation.lat, state.userLocation.lng]);
-                state.userMarker.setIcon(icon); // Force update icon class
-            } else {
-                state.userMarker = L.marker([state.userLocation.lat, state.userLocation.lng], { icon: icon, zIndexOffset: 1000 }).addTo(state.map);
-            }
-            if(state.currentTab === 'radio') state.map.panTo([state.userLocation.lat, state.userLocation.lng], { animate: true });
-        }
-
-        // --- RADIO (7 METROS) ---
-        window.activateRadio = () => {
-            const unlock = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAgAAAA==");
-            unlock.play().then(() => {
-                state.radioEnabled = true;
-                document.getElementById('radio-start-overlay').classList.add('hidden');
-                checkRadio(); 
-            });
-        };
-
-        function checkRadio() {
-            if(state.isRadioPlaying || !state.userLocation || !state.radioEnabled) return;
-            
-            const candidates = state.posts
-                .filter(p => p.audio && p.distance < 7 && !state.playedAudios.has(p.id))
-                .sort((a,b) => a.distance - b.distance);
-
-            if(candidates.length > 0) {
-                const post = candidates[0];
-                state.isRadioPlaying = true;
-                state.playedAudios.add(post.id);
-                
-                const info = document.getElementById('radio-playing-info');
-                info.classList.remove('hidden');
-                info.querySelector('.author').innerText = post.authorName || 'Anon';
-                
-                state.radioAudioElement.src = post.audio;
-                state.radioAudioElement.onended = () => {
-                    state.isRadioPlaying = false;
-                    info.classList.add('hidden');
-                    checkRadio();
-                };
-                state.radioAudioElement.play().catch(() => {
-                    state.isRadioPlaying = false;
-                    document.getElementById('radio-start-overlay').classList.remove('hidden');
-                    state.radioEnabled = false;
+            whispersData.forEach(data => {
+                const avatarSrc = data.authorAvatar || getAvatarUrl(data.author);
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div class='whisper-avatar-marker'><img src="${avatarSrc}" class="w-full h-full object-cover"/></div>`,
+                    iconSize: [36, 36], iconAnchor: [18, 18]
                 });
-                
-                if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
-            }
+                const marker = L.marker([data.lat, data.lng], { icon }).addTo(map)
+                    .on('click', () => window.handlePlayAttempt(data.audioId, data.author, data.lat, data.lng));
+                markers[data.id] = marker;
+            });
         }
 
-        // --- PUBLICAR ---
-        window.publishPost = async () => {
-            const text = document.getElementById('post-input').value.trim();
-            const btn = document.getElementById('btn-publish');
-            
-            if(!state.userLocation) return alert("Esperando señal GPS precisa...");
-            if(!text && !state.audioBlobBase64) return alert("Escribe o graba algo.");
-            
-            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-            try {
-                await addDoc(collection(db, 'artifacts', collectionAppId, 'public', 'data', 'posts'), {
-                    text: text,
-                    audio: state.audioBlobBase64 || null,
-                    lat: parseFloat(state.userLocation.lat),
-                    lng: parseFloat(state.userLocation.lng),
-                    category: 'gossip',
-                    authorUid: state.user.uid,
-                    authorName: state.user.displayName,
-                    likes: [],
-                    timestamp: serverTimestamp(),
-                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
-                });
-                
-                toggleModal('modal-new-post', false);
-                document.getElementById('post-input').value = '';
-                resetAudio();
-            } catch(e) { alert("Error: " + e.message); } 
-            finally { btn.innerText = "Publicar"; btn.disabled = false; }
-        };
-
-        window.toggleLike = async (id) => {
-            if(!state.user) return;
-            const ref = doc(db, 'artifacts', collectionAppId, 'public', 'data', 'posts', id);
-            const post = state.posts.find(p => p.id === id);
-            const isLiked = post.likes && post.likes.includes(state.user.uid);
-            await updateDoc(ref, { likes: isLiked ? arrayRemove(state.user.uid) : arrayUnion(state.user.uid) });
-        };
-
-        // --- UTILS ---
-        window.switchTab = (t) => {
-            state.currentTab = t;
-            // Warm up audio on tab switch interaction
-            if (state.radioAudioElement && state.radioAudioElement.paused) {
-               // Just interacting allows future playback context
+        function updateFeedList() {
+            const container = document.getElementById('feed-list');
+            if(!userLocation) {
+                container.innerHTML = `<p class="text-center text-gray-400 py-10"><i class="fa-solid fa-location-crosshairs fa-spin mb-2 text-2xl"></i><br>Buscando ubicación...</p>`;
+                return;
             }
 
-            ['feed','radio','map'].forEach(x => {
-                document.getElementById(`tab-${x}`).classList.toggle('text-black', x===t);
-                document.getElementById(`tab-${x}`).classList.toggle('text-gray-400', x!==t);
-            });
-            
-            document.getElementById('feed-container').classList.toggle('hidden', t!=='feed');
-            document.getElementById('map-view-container').classList.toggle('hidden', t==='feed');
-            document.getElementById('radio-badge').classList.toggle('hidden', t!=='radio');
-            document.getElementById('radio-start-overlay').classList.add('hidden'); // Reset
+            // Ordenar por cercanía y tiempo localmente (Regla 2 Firestore)
+            const sorted = whispersData.map(w => ({
+                ...w, 
+                dist: getDistanceInMeters(userLocation.lat, userLocation.lng, w.lat, w.lng)
+            })).sort((a, b) => a.dist - b.dist);
 
-            if(t === 'map' || t === 'radio') { 
-                setTimeout(() => { 
-                    initMap(); 
-                    if(state.map) {
-                        state.map.invalidateSize(); 
-                        updateUserMarker();
-                        updateMapMarkers(); // Asegurar que los puntos se pintan al cambiar
+            if(sorted.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-400 py-10">No hay notas en el mundo aún. ¡Sé el primero!</p>`;
+                return;
+            }
+
+            container.innerHTML = sorted.map(w => {
+                const isUnlockable = w.dist <= 50;
+                const distStr = w.dist < 1000 ? `${Math.round(w.dist)}m` : `${(w.dist/1000).toFixed(1)}km`;
+                const avatarSrc = w.authorAvatar || getAvatarUrl(w.author);
+                
+                return `
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center space-x-4 active:scale-[0.98] transition-transform cursor-pointer" 
+                     onclick="handlePlayAttempt('${w.audioId}', '${w.author}', ${w.lat}, ${w.lng})">
+                    <img src="${avatarSrc}" class="w-12 h-12 rounded-full border border-gray-100 bg-gray-50 object-cover"/>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-start">
+                            <h4 class="font-bold text-gray-900 text-sm">@${w.author}</h4>
+                            <span class="text-[10px] font-medium text-gray-400">${timeAgo(w.timestamp)}</span>
+                        </div>
+                        <div class="flex items-center mt-1 space-x-2">
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded-md ${isUnlockable ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
+                                <i class="fa-solid fa-location-dot mr-1"></i> a ${distStr}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-lg ${isUnlockable ? 'bg-purple-100 text-purple-600' : 'bg-gray-50 text-gray-300'}">
+                        <i class="fa-solid ${isUnlockable ? 'fa-play' : 'fa-lock'}"></i>
+                    </div>
+                    ${w.author === currentUsername ? `
+                    <button onclick="event.stopPropagation(); deleteWhisper('${w.id}')" class="w-10 h-10 rounded-full flex items-center justify-center text-red-500 bg-red-50 active:bg-red-200 transition-colors z-10 relative ml-2">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                    ` : ''}
+                </div>
+                `;
+            }).join('');
+
+            checkAutoPlay(sorted); // Revisar si hay audios pegados para autoreproducir
+        }
+
+        function checkAutoPlay(sortedWhispers) {
+            if (!audioElement.paused) return; // Si ya hay algo sonando, no interrumpimos
+
+            const now = Date.now();
+            for (let w of sortedWhispers) {
+                if (w.dist <= 4) { // Auto-play al estar a 4 metros o menos
+                    const lastPlayed = autoPlayedNotes.get(w.id) || 0;
+                    if (now - lastPlayed > AUTOPLAY_COOLDOWN_MS) {
+                        autoPlayedNotes.set(w.id, now);
+                        playAudio(w.audioId, w.author);
+                        showToast(`🔊 Encontraste un eco de @${w.author}`, "info");
+                        break; // Solo reproduce el primero que encuentre válido
                     }
-                }, 100); 
-            }
-            
-            if(t === 'radio') {
-                if(!state.radioEnabled) {
-                    document.getElementById('radio-start-overlay').classList.remove('hidden');
-                } else {
-                    checkRadio();
                 }
-            } else {
-                // Pausar radio si salimos
-                state.radioAudioElement.pause();
-                state.isRadioPlaying = false;
-                document.getElementById('radio-playing-info').classList.add('hidden');
             }
-            refreshUI();
-        };
+        }
 
-        window.toggleRecording = async () => {
-            if (state.isRecording) {
-                if (state.mediaRecorder?.state === 'recording') state.mediaRecorder.stop();
-            } else {
+        // -- Tabs UI --
+        const navMap = document.getElementById('nav-map');
+        const navFeed = document.getElementById('nav-feed');
+        const viewMap = document.getElementById('view-map');
+        const viewFeed = document.getElementById('view-feed');
+
+        navMap.addEventListener('click', () => {
+            currentTab = 'map';
+            viewMap.classList.remove('hidden');
+            viewFeed.classList.add('hidden');
+            navMap.classList.replace('text-gray-400', 'text-purple-600');
+            navFeed.classList.replace('text-gray-900', 'text-gray-400');
+            if(map) map.invalidateSize(); // Refrescar render del mapa
+        });
+
+        navFeed.addEventListener('click', () => {
+            currentTab = 'feed';
+            viewMap.classList.add('hidden');
+            viewFeed.classList.remove('hidden');
+            navFeed.classList.replace('text-gray-400', 'text-gray-900');
+            navMap.classList.replace('text-purple-600', 'text-gray-400');
+            updateFeedList();
+        });
+
+        // -- Recording Flow --
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordSeconds = 0;
+        let recordInterval = null;
+
+        const overlay = document.getElementById('record-overlay');
+        const btnOpenRecord = document.getElementById('btn-open-record');
+        const btnCloseRecord = document.getElementById('btn-close-record');
+        const btnAction = document.getElementById('btn-record-action');
+        const timerContainer = document.getElementById('record-timer-container');
+        const timerText = document.getElementById('record-timer');
+        const hintText = document.getElementById('record-hint');
+
+        btnOpenRecord.addEventListener('click', () => {
+            if(!userLocation) return showToast("Buscando tu ubicación primero...", "info");
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            setTimeout(() => overlay.classList.replace('opacity-0', 'opacity-100'), 10);
+        });
+
+        const closeRecordingUI = () => {
+            if(isRecording) stopRecording(false); // Stop and discard
+            overlay.classList.replace('opacity-100', 'opacity-0');
+            setTimeout(() => {
+                overlay.classList.remove('flex');
+                overlay.classList.add('hidden');
+            }, 300);
+        };
+        btnCloseRecord.addEventListener('click', closeRecordingUI);
+
+        btnAction.addEventListener('click', async () => {
+            if(!isRecording) {
+                // START RECORDING
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                    state.audioChunks = [];
-                    state.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) state.audioChunks.push(e.data); };
-                    state.mediaRecorder.onstop = () => {
-                        const blob = new Blob(state.audioChunks, { type: state.audioChunks[0]?.type || 'audio/webm' });
-                        const reader = new FileReader();
-                        reader.readAsDataURL(blob);
-                        reader.onloadend = () => {
-                            state.audioBlobBase64 = reader.result;
-                            document.getElementById('audio-ui').innerHTML = `<audio controls src="${state.audioBlobBase64}"></audio>`;
-                            toggleRecUI(false);
-                            clearInterval(state.recordInterval);
-                        };
-                        stream.getTracks().forEach(t => t.stop());
-                    };
-                    state.mediaRecorder.start();
-                    state.isRecording = true;
-                    state.recordStartTime = Date.now();
-                    toggleRecUI(true);
-                    state.recordInterval = setInterval(() => {
-                        const sec = Math.floor((Date.now() - state.recordStartTime) / 1000);
-                        const m = Math.floor(sec / 60).toString().padStart(2,'0');
-                        const s = (sec % 60).toString().padStart(2,'0');
-                        document.getElementById('rec-status').innerText = `${m}:${s}`;
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.onstop = () => processUpload();
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    
+                    // UI Update
+                    btnAction.classList.replace('bg-purple-600', 'bg-red-500');
+                    btnAction.classList.add('recording-pulse', 'scale-110');
+                    btnAction.innerHTML = '<i class="fa-solid fa-stop"></i>';
+                    hintText.classList.add('hidden');
+                    timerContainer.classList.remove('hidden');
+                    
+                    recordSeconds = 0;
+                    timerText.innerText = "00:00";
+                    recordInterval = setInterval(() => {
+                        recordSeconds++;
+                        const m = String(Math.floor(recordSeconds / 60)).padStart(2, '0');
+                        const s = String(recordSeconds % 60).padStart(2, '0');
+                        timerText.innerText = `${m}:${s}`;
                     }, 1000);
-                } catch(e) { alert("Micro bloqueado"); }
-            }
-        };
-
-        function toggleRecUI(recording) {
-            const btn = document.getElementById('btn-rec');
-            if(recording) {
-                btn.innerHTML = '<i class="fas fa-stop"></i>';
-                btn.classList.remove('bg-gray-100', 'text-black');
-                btn.classList.add('bg-red-500', 'text-white', 'animate-pulse');
-                document.getElementById('rec-status').classList.remove('hidden');
-                document.getElementById('del-audio').classList.add('hidden');
+                } catch (err) {
+                    showToast("Permiso de micrófono denegado", "error");
+                }
             } else {
-                btn.innerHTML = '<i class="fas fa-microphone"></i>';
-                btn.classList.remove('bg-red-500', 'text-white', 'animate-pulse');
-                btn.classList.add('bg-gray-100', 'text-black', 'hidden');
-                document.getElementById('rec-status').classList.add('hidden');
-                document.getElementById('del-audio').classList.remove('hidden');
+                // STOP AND UPLOAD
+                stopRecording(true);
+            }
+        });
+
+        function stopRecording(save = true) {
+            isRecording = false;
+            if(mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.onstop = save ? processUpload : null; // Solo subir si se guarda
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            }
+            
+            clearInterval(recordInterval);
+            
+            // Reset UI
+            btnAction.classList.replace('bg-red-500', 'bg-purple-600');
+            btnAction.classList.remove('recording-pulse', 'scale-110');
+            btnAction.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+            hintText.classList.remove('hidden');
+            timerContainer.classList.add('hidden');
+            
+            if(save) closeRecordingUI();
+        }
+
+        async function processUpload() {
+            if (audioChunks.length === 0) return;
+            showToast("Subiendo nota...", "info");
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'whisper.webm');
+
+            try {
+                // Endpoint API externo
+                const response = await fetch('https://greenbase.arielcapdevila.com/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if(!response.ok) throw new Error("API Error");
+                const result = await response.json();
+                
+                if (result.id) {
+                    // Guardar metadata en Firestore con tu estructura
+                    await addDoc(whispersCollection, {
+                        audioId: result.id,
+                        lat: userLocation.lat,
+                        lng: userLocation.lng,
+                        author: currentUsername,
+                        authorAvatar: auth.currentUser?.photoURL || null,
+                        timestamp: serverTimestamp()
+                    });
+                    showToast("¡Audio anclado a este lugar!", "success");
+                }
+            } catch (error) {
+                showToast("Fallo al subir archivo a tu API", "error");
             }
         }
 
-        window.resetAudio = () => {
-            state.audioBlobBase64 = null; state.audioChunks = []; state.isRecording = false;
-            if(state.recordInterval) clearInterval(state.recordInterval);
-            document.getElementById('audio-ui').innerHTML = '';
-            document.getElementById('del-audio').classList.add('hidden');
-            document.getElementById('rec-status').classList.add('hidden');
-            const btn = document.getElementById('btn-rec');
-            btn.classList.remove('hidden', 'bg-red-500', 'text-white', 'animate-pulse');
-            btn.classList.add('bg-gray-100', 'text-black');
-            btn.innerHTML = '<i class="fas fa-microphone"></i>';
-        };
+        // -- Lógica de subida de Foto de Perfil --
+        const pfpInput = document.getElementById('pfp-upload');
+        document.getElementById('profile-btn').addEventListener('click', () => {
+            if(auth.currentUser) pfpInput.click();
+        });
 
-        navigator.geolocation.watchPosition(
-            (pos) => {
-                const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                if (!state.userLocation || getDist(state.userLocation, newLoc) > 2) {
-                    state.userLocation = newLoc;
-                    document.getElementById('gps-loading').classList.add('hidden');
-                    const pubBtn = document.getElementById('btn-publish');
-                    if(pubBtn && pubBtn.innerText === "Esperando GPS...") {
-                        pubBtn.disabled = false;
-                        pubBtn.innerText = "Publicar";
+        pfpInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            showToast("Subiendo nueva foto...", "info");
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('https://greenbase.arielcapdevila.com/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if(!response.ok) throw new Error("Error API Greenbase");
+                const result = await response.json();
+
+                if (result.id) {
+                    const newPhotoUrl = `https://greenbase.arielcapdevila.com/file/${result.id}`;
+                    
+                    // Actualizamos el perfil de Firebase Auth
+                    await updateProfile(auth.currentUser, { photoURL: newPhotoUrl });
+                    
+                    // Actualizamos la UI en vivo
+                    document.getElementById('header-avatar').src = newPhotoUrl;
+                    
+                    // Si el usuario ya está en el mapa, actualizamos su marcador
+                    if(userMarkerObj) {
+                        const icon = userMarkerObj.getIcon();
+                        icon.options.html = `<div class='user-marker-self'><img src="${newPhotoUrl}" class="w-full h-full object-cover"/></div>`;
+                        userMarkerObj.setIcon(icon);
                     }
-                    refreshUI();
+                    
+                    showToast("¡Foto de perfil actualizada!", "success");
                 }
-            },
-            () => { document.getElementById('gps-loading').innerHTML = '<p class="text-xs text-red-500">GPS Error</p>'; }, 
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
+            } catch (error) {
+                showToast("Fallo al actualizar perfil", "error");
+            }
+        });
 
-        window.toggleModal = (id, show) => { 
-            const el = document.getElementById(id); 
-            if(show) { 
-                el.classList.remove('hidden'); 
-                el.querySelector('div').classList.add('animate-slide-up'); 
-                if(id === 'modal-new-post') {
-                    const btn = document.getElementById('btn-publish');
-                    if(!state.userLocation) { btn.disabled = true; btn.innerText = "Esperando GPS..."; } 
-                    else { btn.disabled = false; btn.innerText = "Publicar"; }
-                }
-            } else el.classList.add('hidden'); 
-        };
-
-        function getDist(p1, p2) { const R=6371e3, p=Math.PI/180, a=0.5-Math.cos((p2.lat-p1.lat)*p)/2+Math.cos(p1.lat*p)*Math.cos(p2.lat*p)*(1-Math.cos((p2.lng-p1.lng)*p))/2; return 2*R*Math.asin(Math.sqrt(a)); }
-        function formatDist(m) { return m<10?'Aquí':(m>=1000?(m/1000).toFixed(1)+'km':Math.round(m)+'m'); }
-        function escapeHtml(t) { return t?t.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#039;','"':'&quot;'}[m])):''; }
-        function getTimeAgo(d) { const s=Math.floor((new Date()-d)/1000); if(s<60)return'ahora'; if(s<3600)return Math.floor(s/60)+'m'; return Math.floor(s/3600)+'h'; }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            document.getElementById('rangeSlider').addEventListener('input', e => { state.range = parseInt(e.target.value); document.getElementById('rangeValue').innerText = formatDist(state.range); refreshUI(); });
+        // -- Fullscreen Toggle UI --
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+            const btn = document.getElementById('btn-fullscreen');
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                enterFullScreen();
+                btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            }
         });
     </script>
-</head>
-<body class="text-brand-black h-[100dvh] flex flex-col overflow-hidden antialiased">
-
-    <!-- HEADER -->
-    <header class="glass-header sticky top-0 z-30 px-5 h-[60px] flex justify-between items-center">
-        <h1 class="text-2xl font-black tracking-tighter">Whispr.</h1>
-        <div onclick="toggleModal('modal-profile',true)" class="w-9 h-9 bg-black text-white rounded-full flex items-center justify-center text-sm font-bold shadow-lg"><i class="fas fa-user"></i></div>
-    </header>
-
-    <!-- FILTERS (Slider Only) -->
-    <div class="bg-white/90 backdrop-blur z-20 border-b border-gray-100 pb-4 pt-3">
-        <div class="px-6 flex items-center gap-4">
-            <i class="fas fa-location-crosshairs text-gray-300 text-xs"></i>
-            <input type="range" min="10" max="200" step="10" value="50" id="rangeSlider" class="flex-1 h-1 bg-gray-200 rounded-full cursor-pointer accent-black">
-            <span id="rangeValue" class="text-[10px] font-bold text-black w-12 text-right">50m</span>
-        </div>
-    </div>
-
-    <!-- MAIN -->
-    <main class="flex-1 relative overflow-hidden bg-gray-50">
-        <div id="feed-container" class="absolute inset-0 overflow-y-auto pt-4 z-10 hide-scrollbar pb-32">
-            <div id="gps-loading" class="flex flex-col items-center justify-center h-full text-gray-300 gap-3"><i class="fas fa-satellite-dish fa-spin text-2xl"></i><p class="text-[10px] uppercase">Conectando...</p></div>
-        </div>
-        
-        <div id="map-view-container" class="hidden absolute inset-0 z-0 bg-gray-100">
-            <div id="map-view" class="w-full h-full opacity-0 animate-fade-in"></div>
-            <!-- Radio Badge -->
-            <div id="radio-badge" class="hidden absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur text-white px-4 py-2 rounded-full flex items-center gap-2 z-[400] shadow-lg">
-                <div class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div><span class="text-xs font-bold tracking-widest">RADIO ACTIVA</span>
-            </div>
-
-            <!-- Start Radio Button (PARA DESBLOQUEAR AUDIO) -->
-            <div id="radio-start-overlay" class="hidden absolute bottom-32 left-1/2 -translate-x-1/2 z-[600]">
-                <button onclick="activateRadio()" class="bg-black text-white px-6 py-3 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-pulse">
-                    <i class="fas fa-power-off"></i> ACTIVAR FRECUENCIA
-                </button>
-            </div>
-
-            <!-- Player -->
-            <div id="radio-playing-info" class="hidden absolute bottom-24 left-4 right-4 z-[500]">
-                <div class="bg-black/90 text-white backdrop-blur rounded-full px-5 py-3 shadow-xl border border-emerald-500/50 flex items-center gap-3">
-                    <div class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    <div class="flex flex-col overflow-hidden"><span class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">ON AIR</span><span class="author text-xs font-bold truncate">...</span></div>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <!-- NAV -->
-    <div class="fixed bottom-0 left-0 right-0 h-[80px] pointer-events-none z-40 flex justify-center items-end pb-6">
-        <div class="glass-nav pointer-events-auto rounded-full shadow-float px-6 py-3 flex items-center gap-8 mb-2 mx-4">
-            <button id="tab-feed" onclick="switchTab('feed')" class="btn-press flex flex-col items-center justify-center text-black w-12"><i class="fas fa-stream text-lg mb-1"></i><span class="text-[9px] font-bold">LISTA</span></button>
-            <button id="tab-radio" onclick="switchTab('radio')" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-broadcast-tower text-lg mb-1"></i><span class="text-[9px] font-bold">RADIO</span></button>
-            <button id="tab-map" onclick="switchTab('map')" class="btn-press flex flex-col items-center justify-center text-gray-400 w-12"><i class="fas fa-map text-lg mb-1"></i><span class="text-[9px] font-bold">MAPA</span></button>
-        </div>
-        <button onclick="toggleModal('modal-new-post',true)" class="pointer-events-auto absolute bottom-24 right-6 bg-black text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 border-white active:scale-90 transition-transform z-50"><i class="fas fa-plus text-xl"></i></button>
-    </div>
-
-    <!-- MODAL POST (Sin categorías) -->
-    <div id="modal-new-post" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center">
-        <div class="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl animate-slide-up">
-            <div class="flex justify-between items-center mb-6"><span class="text-xs font-black text-gray-300 uppercase">Nuevo Whispr</span><button onclick="toggleModal('modal-new-post',false)"><i class="fas fa-times text-gray-500"></i></button></div>
-            <textarea id="post-input" rows="4" class="w-full text-xl font-medium placeholder-gray-300 border-none focus:ring-0 resize-none p-2 bg-transparent" placeholder="Cuenta algo..."></textarea>
-            <div class="flex items-center gap-3 mt-4 bg-gray-50 p-3 rounded-2xl">
-                <button id="btn-rec" onclick="toggleRecording()" class="w-10 h-10 rounded-full bg-gray-100 text-black shadow-sm flex items-center justify-center"><i class="fas fa-microphone"></i></button>
-                <div class="flex-1 overflow-hidden">
-                    <p id="rec-status" class="text-xs text-red-500 font-bold hidden animate-pulse">00:00</p>
-                    <div id="audio-ui"></div>
-                </div>
-                <button id="del-audio" onclick="resetAudio()" class="hidden text-gray-400"><i class="fas fa-trash"></i></button>
-            </div>
-            <button id="btn-publish" onclick="publishPost()" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg mt-6">Publicar</button>
-        </div>
-    </div>
-
-    <!-- AUTH MODAL -->
-    <div id="modal-auth" class="hidden fixed inset-0 z-[60] bg-white flex flex-col items-center justify-center p-8 animate-fade-in">
-        <h1 class="text-5xl font-black tracking-tighter mb-2">Whispr.</h1>
-        <p class="text-gray-400 mb-10 text-sm font-medium">Servidor Real. Sin Lag.</p>
-        <div class="w-full max-w-xs space-y-4">
-            <input id="auth-username" class="w-full bg-gray-50 border-0 rounded-2xl px-5 py-4 font-bold text-sm focus:ring-2 ring-black" placeholder="Usuario">
-            <input id="auth-password" type="password" class="w-full bg-gray-50 border-0 rounded-2xl px-5 py-4 font-bold text-sm focus:ring-2 ring-black" placeholder="Contraseña">
-            <button id="auth-submit" onclick="handleAuth()" class="w-full bg-black text-white py-4 rounded-2xl font-bold text-sm shadow-lg">Entrar / Registrar</button>
-        </div>
-    </div>
-
-    <!-- PROFILE MODAL -->
-    <div id="modal-profile" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6">
-        <div class="bg-white w-full max-w-xs rounded-3xl p-8 text-center shadow-2xl animate-slide-up relative">
-            <button onclick="toggleModal('modal-profile',false)" class="absolute top-4 right-4 text-gray-300 hover:text-black"><i class="fas fa-times"></i></button>
-            <div class="w-24 h-24 bg-black text-white rounded-full mx-auto mb-4 flex items-center justify-center text-3xl shadow-lg"><i class="fas fa-user-astronaut"></i></div>
-            <h3 class="text-lg font-bold mb-6">Tu Perfil</h3>
-            <input id="prof-pseudo" readonly class="w-full bg-gray-50 border-none rounded-xl px-4 py-3 mb-4 text-center font-bold text-sm text-gray-500">
-            <button onclick="doLogout()" class="text-red-500 text-xs font-bold py-2">Cerrar Sesión</button>
-        </div>
-    </div>
-
 </body>
 </html>
